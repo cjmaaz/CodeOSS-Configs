@@ -1,26 +1,46 @@
 {
+  // ───────────────────────────── Search / Files Exclusion ─────────────────────────────
   "search.exclude": {
     "**/node_modules": true,
     "**/bower_components": true,
     "**/.sfdx": true
   },
+
+  // ───────────────────────────────── Salesforce ───────────────────────────────────────
   "salesforcedx-vscode-apex.java.home": "/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home",
+  "salesforce.einsteinForDevelopers.enable": true, // DISABLE LATER ON
   "salesforce.einsteinForDevelopers.enableAutocompletions": false,
   "salesforcedx-vscode-apex.advanced.enable-completion-statistics": false,
   "salesforcedx-vscode-slds.basic.designToken": true,
   "salesforcedx-vscode-slds.enhancements.autoSuggest": true,
   "salesforcedx-vscode-core.telemetry.enabled": false,
   "salesforcedx-vscode-core.enable-sobject-refresh-on-startup": true,
-  "salesforce.einsteinForDevelopers.enable": true, // DISABLE LATER ON
-  "chat.checkpoints.enabled": false, // DISABLE LATER ON
+  "salesforcedx-vscode-core.detectConflictsForDeployAndRetrieve": false,
+  // "salesforcedx-vscode-core.detectConflictsAtSync": false,
+  // "salesforcedx-vscode-core.push-or-deploy-on-save.ignoreConflictsOnPush": false
   "salesforcedx-vscode-core.experimental.enableSourceTrackingForDeployAndRetrieve": false,
+
+  // ───────────────────────────────── Editor / Files ───────────────────────────────────
   "editor.formatOnSave": false,
+  "files.trimTrailingWhitespace": false,
+  "files.insertFinalNewline": false, // EXTRA LINE AT THE END OF THE FILE (SF TRIMS IT)
   "prettier.enable": false,
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "never",
     "source.organizeImports": "never"
   },
+
+  // ─────────────────────────────────── Chat / AI ──────────────────────────────────────
+  "chat.checkpoints.enabled": false, // DISABLE LATER ON
+
+  // ─────────────────────────────────── Spell Check ────────────────────────────────────
   "cSpell.enabled": false,
+
+  // ─────────────────────────────────────── Git ────────────────────────────────────────
+  "git.branchProtection": [], // Override profile-level protection in this workspace
+  "git.branchProtectionPrompt": "alwaysCommit", // No warning when committing to main
+
+  // ──────────────────────────────── Workbench / Theme ─────────────────────────────────
   "workbench.colorCustomizations": {
     "activityBar.activeBackground": "#215731",
     "activityBar.background": "#215731",
@@ -40,7 +60,5 @@
     "titleBar.inactiveBackground": "#13321c99",
     "titleBar.inactiveForeground": "#e7e7e799"
   },
-  "peacock.color": "#13321c",
-  // "salesforcedx-vscode-core.detectConflictsAtSync": false,
-  // "salesforcedx-vscode-core.push-or-deploy-on-save.ignoreConflictsOnPush": true
+  "peacock.color": "#13321c"
 }
