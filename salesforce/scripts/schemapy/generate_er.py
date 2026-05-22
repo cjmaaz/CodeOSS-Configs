@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+Step 12: Generate ER.md
+========================
+
+Reads `config/schema/_junctions.toon` (emitted by Step 11) and emits
+`ER.md` at the project root — a single human-readable artifact showing
+every detected junction and its parent entities, grouped by confidence
+tier, with both mermaid `erDiagram` blocks and per-tier markdown tables.
+
+Pure offline analysis: no SOQL, no `sf` calls. Reading `_junctions.toon`
+is enough.
+
+Why mermaid?
+  - Renders inline in GitHub, GitLab, Cursor, every modern markdown
+    previewer — no external diagramming tool required.
+  - Stable across orgs: the diagram regenerates from `_junctions.toon`
+    each run, no hand-curated layout to maintain.
+
+Usage
+-----
+    python3 scripts/schemapy/generate_er.py
+
+This script is automatically called by `auto_generate_schema.py` as
+Step 12 of the pipeline.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# Allow `from _toon_io import ...` regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _toon_io import load_toon, find_project_root  # noqa: E402
+
+
+CONFIDENCE_ORDER = ('high', 'medium', 'low', 'schema_only')
+
+CONFIDENCE_DESCRIPTION = {
+    'high': "Bridges populated at scale (junction record count >= 50% of the larger parent).",
+    'medium': "Bridge present but sparser than its parents (or 3+ distinct parents).",
+    'low': "Junction object has zero records in this org — schema fits but bridge is unused.",
+    'schema_only': "Detected from schema only; no record-count data available.",
+}
+
+# Skip mermaid rendering for tiers with this many entries — emitting
+# 200+ relationships into a single diagram makes it unreadable.
+MERMAID_MAX_ENTRIES = 80
+
+
+def _format_record_count(rc: Any) -> str:
+    if rc is None or rc == -1:
+        return "n/a"
+    try:
+        return f"{int(rc):,}"
+    except (TypeError, ValueError):
+        return str(rc)
+
+
+def _mermaid_safe(name: str) -> str:
+    """Mermaid identifiers should be quoted when they include any
+    character outside [A-Za-z0-9_]. We always quote on the safe side."""
+    if not name:
+        return '""'
+    return f'"{name}"' if any(c in name for c in ' -.()[]{}<>:,/') else name
+
+
+def _format_parents_for_table(parents: List[Dict[str, Any]]) -> str:
+    """Compact comma-separated parent list with field annotations."""
+    seen = set()
+    out = []
+    for p in parents:
+        key = (p.get('object'), p.get('field'))
+        if key in seen:
+            continue
+        seen.add(key)
+        marker = '*' if p.get('required') else ''
+        out.append(f"{p.get('object')} (`{p.get('field')}`{marker})")
+    return ', '.join(out) if out else 'n/a'
+
+
+def _mermaid_block(junctions: List[Dict[str, Any]]) -> str:
+    """Emit a mermaid erDiagram covering every junction-to-parent edge
+    in the supplied list. Parent ||--o{ Junction : 'fk_field'."""
+    lines = ['```mermaid', 'erDiagram']
+    seen_edges = set()
+    for j in junctions:
+        jname = _mermaid_safe(j['object'])
+        for p in j.get('parents', []):
+            pname = _mermaid_safe(p.get('object', ''))
+            field = p.get('field', '')
+            edge_key = (pname, jname, field)
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            label = field.replace('"', '\\"')
+            lines.append(f'  {pname} ||--o{{ {jname} : "{label}"')
+    lines.append('```')
+    return '\n'.join(lines)
+
+
+def _table_block(junctions: List[Dict[str, Any]]) -> str:
+    lines = [
+        '| Junction | Records | Parents (FK field, `*` = required) | Note |',
+        '|---|---|---|---|',
+    ]
+    for j in junctions:
+        rc = _format_record_count(j.get('record_count'))
+        parents = _format_parents_for_table(j.get('parents', []))
+        note = (j.get('note') or '').replace('|', '\\|')
+        lines.append(f"| `{j['object']}` | {rc} | {parents} | {note} |")
+    return '\n'.join(lines)
+
+
+def render_er_markdown(junctions_doc: Dict[str, Any], source_file: Path) -> str:
+    junctions: List[Dict[str, Any]] = junctions_doc.get('junctions', []) or []
+    metadata = junctions_doc.get('metadata', {}) or {}
+    by_confidence: Dict[str, List[Dict[str, Any]]] = {c: [] for c in CONFIDENCE_ORDER}
+    for j in junctions:
+        c = j.get('confidence', 'schema_only')
+        by_confidence.setdefault(c, []).append(j)
+
+    # All embedded links are project-root-relative so ER.md renders
+    # correctly when viewed from the repo root in any markdown previewer.
+    root = find_project_root()
+    try:
+        source_rel = source_file.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        source_rel = source_file.as_posix()
+
+    out: List[str] = []
+    out.append("# Entity Relationships")
+    out.append("")
+    out.append(
+        "> Auto-generated by `python3 scripts/schemapy/generate_er.py` from "
+        f"[`{source_rel}`]({source_rel}). Do not hand-edit; re-run the "
+        "pipeline when relationships drift."
+    )
+    out.append("")
+    out.append(
+        "This document maps every **detected junction object** in the org "
+        "to the entities it bridges. Junctions are objects with two or more "
+        "Lookup / Master-Detail relationships to other business entities — "
+        "i.e. they model many-to-many links."
+    )
+    out.append("")
+    out.append("## Summary")
+    out.append("")
+    out.append(f"- **Total junctions detected:** {len(junctions)}")
+    cb = metadata.get('confidence_breakdown') or {}
+    for c in CONFIDENCE_ORDER:
+        cnt = cb.get(c) or len(by_confidence.get(c, []))
+        if cnt:
+            out.append(f"- **{c}:** {cnt}")
+    out.append(
+        f"- **Source:** `{source_rel}` "
+        f"(generated {metadata.get('generated_date', 'unknown')})"
+    )
+    if metadata.get('uses_record_counts'):
+        out.append("- **Confidence ranking uses live record counts.**")
+    else:
+        out.append("- Confidence ranking uses schema only (record counts unavailable).")
+    out.append("")
+    out.append("### How to read this document")
+    out.append("")
+    out.append(
+        "- The **mermaid diagrams** show parent-to-junction edges; one edge "
+        "per FK field. Parent objects sit on the left of `||--o{`, the "
+        "junction on the right. The edge label is the FK field name on the "
+        "junction."
+    )
+    out.append(
+        "- The **tables** include record counts and an auto-derived note "
+        "summarising the bridge. `*` after a field name means the FK is "
+        "non-nillable on the junction."
+    )
+    out.append(
+        "- For programmatic use see "
+        f"[`{source_rel}`]({source_rel})."
+    )
+    out.append("")
+
+    for c in CONFIDENCE_ORDER:
+        items = by_confidence.get(c, [])
+        if not items:
+            continue
+        out.append(f"## {c.replace('_', ' ').title()} confidence ({len(items)})")
+        out.append("")
+        out.append(f"_{CONFIDENCE_DESCRIPTION[c]}_")
+        out.append("")
+        if len(items) <= MERMAID_MAX_ENTRIES:
+            out.append(_mermaid_block(items))
+            out.append("")
+        else:
+            out.append(
+                f"*Mermaid diagram omitted: {len(items)} entries would render "
+                "unreadably. See the table below.*"
+            )
+            out.append("")
+        out.append(_table_block(items))
+        out.append("")
+
+    out.append("---")
+    out.append(
+        "*Generated " + datetime.now().isoformat(timespec='seconds') +
+        " by `scripts/schemapy/generate_er.py`.*"
+    )
+    out.append("")
+    return '\n'.join(out)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description='Render ER.md from _junctions.toon',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        '--input',
+        default=None,
+        help='Junctions file (default: <project-root>/config/schema/_junctions.toon)',
+    )
+    parser.add_argument(
+        '--output',
+        default=None,
+        help='Output markdown file (default: <project-root>/ER.md)',
+    )
+    args = parser.parse_args()
+
+    root = find_project_root()
+    input_path = Path(args.input) if args.input else root / 'config' / 'schema' / '_junctions.toon'
+    output_path = Path(args.output) if args.output else root / 'ER.md'
+
+    if not input_path.exists():
+        print(f"Error: junctions file not found: {input_path}")
+        print("Run Step 11 (`detect_junctions.py`) first.")
+        sys.exit(1)
+
+    print(f"Loading {input_path}...")
+    junctions_doc = load_toon(input_path)
+    md = render_er_markdown(junctions_doc, input_path)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(md)
+
+    print(f"Wrote {output_path}")
+    j = junctions_doc.get('junctions', []) or []
+    print(f"  Total junctions: {len(j)}")
+    cb = (junctions_doc.get('metadata') or {}).get('confidence_breakdown') or {}
+    for c in CONFIDENCE_ORDER:
+        if cb.get(c):
+            print(f"    {c:12s}: {cb[c]}")
+
+
+if __name__ == '__main__':
+    main()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to enrich Salesforce schema YAML files with picklist values and other metadata.
+Script to enrich Salesforce schema TOON files with picklist values and other metadata.
 
 This script uses Salesforce CLI to extract complete field metadata including:
 - Picklist values (ACTIVE ONLY - inactive values are excluded)
@@ -13,6 +13,11 @@ This script uses Salesforce CLI to extract complete field metadata including:
 IMPORTANT: Only ACTIVE picklist values are extracted to ensure AI agents
            and developers only use currently valid values.
 
+Output format: TOON (Token-Oriented Object Notation, v3.0). The legacy
+single-`.yaml`-file fallback was removed when the pipeline migrated to
+TOON; this script now expects the per-object folder structure with
+`schema.toon`, `picklists.toon`, `formulas.toon`.
+
 WINDOWS COMPATIBLE: Properly resolves SF CLI path on Windows
 
 Usage:
@@ -20,7 +25,7 @@ Usage:
     python/python3 enrich_schema_with_picklists.py
 
     # Enrich all objects with explicit org
-    python/python3 enrich_schema_with_picklists.py --org IBXDev_Maaz
+    python/python3 enrich_schema_with_picklists.py --org <your-org-alias>
 
     # Enrich specific objects
     python/python3 enrich_schema_with_picklists.py --objects Account,Contact,HealthcareProviderNpi
@@ -31,14 +36,13 @@ Usage:
 Requirements:
     - Salesforce CLI (sf) installed
     - Authenticated org
-    - PyYAML: pip install pyyaml
+    - Python deps: pip install -r scripts/schemapy/requirements.txt
 
 Note: This script is automatically called by auto_generate_schema.py as Step 9.
 """
 
 import subprocess
 import json
-import yaml
 import argparse
 import platform
 import shutil
@@ -48,11 +52,24 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import sys
 
+# Allow `from _toon_io import ...` regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _toon_io import dump_toon, load_toon, find_project_root  # noqa: E402
+from _fields_tabular import (  # noqa: E402
+    emit_fields_file as emit_fields_tabular,
+    discover_present_objects_from_dir,
+    POLY_SEP,
+)
+
 class SchemaEnricher:
-    """Enriches Salesforce schema YAML files with complete metadata from org."""
-    
-    def __init__(self, org_alias: Optional[str] = None, schema_dir: str = "config/schema/objects"):
+    """Enriches Salesforce schema TOON files with complete metadata from org."""
+
+    def __init__(self, org_alias: Optional[str] = None, schema_dir: Optional[str] = None):
         self.org_alias = org_alias or self._detect_org_alias()
+        # Default schema_dir resolves against the project root (not cwd),
+        # so the script works regardless of where it is invoked from.
+        if schema_dir is None:
+            schema_dir = str(find_project_root() / 'config' / 'schema' / 'objects')
         self.schema_dir = Path(schema_dir)
         self.sf_exe = self._resolve_sf()
         self.enrichment_stats = {
@@ -95,11 +112,13 @@ class SchemaEnricher:
     
     def _detect_org_alias(self) -> str:
         """
-        Automatically detect the target org from .sf/config.json or .sfdx/sfdx-config.json.
-        Same logic as auto_generate_schema.py.
+        Automatically detect the target org from .sf/config.json or
+        .sfdx/sfdx-config.json. Project root is resolved by walking up
+        from this file's location, so the script works regardless of
+        where it is invoked from.
         """
-        project_root = Path.cwd()
-        
+        project_root = find_project_root()
+
         # Try .sf/config.json (SF CLI v2)
         sf_config = project_root / '.sf' / 'config.json'
         if sf_config.exists():
@@ -194,27 +213,32 @@ class SchemaEnricher:
             self.enrichment_stats['errors'].append(f"{object_name}: Unexpected error - {str(e)}")
             return None
     
-    def extract_picklist_values(self, field_metadata: Dict) -> Optional[List[str]]:
+    def extract_picklist_values(self, field_metadata: Dict) -> Optional[List[Dict[str, str]]]:
         """
-        Extract picklist values from field metadata.
-        
-        IMPORTANT: Returns ONLY ACTIVE picklist values.
-        Inactive values are excluded to prevent invalid data in code.
+        Extract picklist values from field metadata as {value, label} dicts.
+
+        IMPORTANT: Returns ONLY ACTIVE picklist values. Inactive values
+        are excluded to prevent invalid data in code.
+
+        Each entry preserves both `value` (the API/DB string used in code,
+        SOQL, DML) and `label` (the display string users see in the UI).
+        They commonly differ (e.g. `value: PCP`, `label: Primary Care
+        Physician`) and AI agents should never assume they are the same.
         """
         if field_metadata.get('type') not in ['picklist', 'multipicklist']:
             return None
-        
+
         picklist_values = field_metadata.get('picklistValues', [])
-        
-        # CRITICAL: Filter for ACTIVE values only (exclude inactive)
-        # This ensures AI agents only use valid, currently-active picklist values
-        active_values = [
-            pv['value'] 
-            for pv in picklist_values 
-            if pv.get('active', True)  # Only include if active=True
-        ]
-        
-        return active_values if active_values else None
+
+        active_pairs = []
+        for pv in picklist_values:
+            if not pv.get('active', True):
+                continue
+            v = pv.get('value', '')
+            l = pv.get('label') if pv.get('label') not in (None, '') else v
+            active_pairs.append({'value': v, 'label': l})
+
+        return active_pairs if active_pairs else None
     
     def _extract_non_picklist_formula_metadata(self, field_metadata: Dict) -> Dict[str, Any]:
         """
@@ -349,196 +373,265 @@ class SchemaEnricher:
     
     def enrich_object_schema(self, object_name: str, dry_run: bool = False) -> bool:
         """
-        Enrich a single object's schema files with metadata from org.
-        
-        Creates/updates three files:
-        - schema.yaml (core structure)
-        - picklists.yaml (picklist values)
-        - formulas.yaml (formula definitions)
-        
+        Enrich a single object's schema files with metadata from the org.
+
+        New 7-file layout (Step 8 emitted these; we update them in place):
+          - schema.toon          (slim index — only metadata.enriched_date is bumped)
+          - fields.toon          (rewritten with describe-merged data, kept tabular)
+          - picklists.toon       (created/updated with picklist values)
+          - formulas.toon        (created/updated with formula definitions)
+          - record_types.toon    (untouched here; Step 10 adds record_count)
+          - validation_rules.toon (untouched)
+          - related_relationships.toon (untouched)
+
         Returns True if successful, False otherwise.
         """
-        # Check if object folder exists (new structure)
         obj_folder = self.schema_dir / object_name
-        schema_file = obj_folder / 'schema.yaml'
-        
-        # Also check for legacy single-file structure
-        legacy_file = self.schema_dir / f"{object_name}.yaml"
-        
-        if not schema_file.exists() and not legacy_file.exists():
-            self.enrichment_stats['errors'].append(f"{object_name}: Schema file not found")
+        schema_file = obj_folder / 'schema.toon'
+        fields_file = obj_folder / 'fields.toon'
+
+        if not schema_file.exists():
+            self.enrichment_stats['errors'].append(
+                f"{object_name}: schema.toon not found at {schema_file}"
+            )
             return False
-        
-        # Determine which structure we're working with
-        if schema_file.exists():
-            # New folder structure
-            working_file = schema_file
-            is_new_structure = True
-        else:
-            # Legacy single file
-            working_file = legacy_file
-            is_new_structure = False
-        
+        if not fields_file.exists():
+            self.enrichment_stats['errors'].append(
+                f"{object_name}: fields.toon not found at {fields_file} "
+                "(re-run Step 8 to create the new 7-file layout)"
+            )
+            return False
+
         # Get metadata from Salesforce
         print(f"📡 Retrieving metadata for {object_name}...")
         org_metadata = self.get_object_metadata(object_name)
-        
         if not org_metadata:
             return False
-        
-        # Load existing schema
-        with open(working_file, 'r', encoding='utf-8') as f:
-            schema = yaml.safe_load(f)
-        
-        # Create field lookup map from org metadata
+
+        # Load existing slim schema + tabular fields file.
+        try:
+            schema = load_toon(schema_file)
+            fields_doc = load_toon(fields_file)
+        except Exception as e:
+            self.enrichment_stats['errors'].append(
+                f"{object_name}: failed to load schema/fields: {e}"
+            )
+            return False
+
+        if not isinstance(schema, dict) or not isinstance(fields_doc, dict):
+            self.enrichment_stats['errors'].append(
+                f"{object_name}: schema/fields are not TOON objects"
+            )
+            return False
+
+        existing_rows: List[Dict[str, Any]] = list(fields_doc.get('fields') or [])
+
+        # Build name -> describe-field map
         org_fields = {f['name']: f for f in org_metadata.get('fields', [])}
-        
-        # Separate enriched data into categories
-        enriched_fields = []
-        picklists_data = {}
-        formulas_data = {}
+
+        # Walk existing rows and merge enrichment data into the per-row
+        # dict. Picklist values + formulas land in their dedicated files,
+        # not in fields.toon. Picklists are partitioned by type so that
+        # picklists.toon's two-block split (picklists: vs multipicklists:)
+        # is preserved on rewrite.
+        single_picklists_data: Dict[str, List[Dict[str, str]]] = {}
+        multipicklists_data: Dict[str, List[Dict[str, str]]] = {}
+        formulas_data: Dict[str, str] = {}
         enriched_count = 0
-        
-        for field in schema.get('object', {}).get('fields', []):
-            field_name = field.get('api_name')
-            
-            if field_name in org_fields:
-                org_field = org_fields[field_name]
-                
-                # Extract picklist values
-                if org_field.get('type') in ['picklist', 'multipicklist']:
-                    picklist_values = self.extract_picklist_values(org_field)
-                    if picklist_values:
-                        picklists_data[field_name] = picklist_values
+        merged_rows: List[Dict[str, Any]] = []
+
+        for row in existing_rows:
+            row = dict(row)  # don't mutate the loaded dict in-place
+            field_name = row.get('api_name')
+            org_field = org_fields.get(field_name) if field_name else None
+
+            if org_field:
+                # Picklists — partition by single-select vs multi-select
+                # so picklists.toon's two-block layout is preserved.
+                org_type = org_field.get('type')
+                if org_type in ('picklist', 'multipicklist'):
+                    pv = self.extract_picklist_values(org_field)
+                    if pv:
+                        if org_type == 'multipicklist':
+                            multipicklists_data[field_name] = pv
+                        else:
+                            single_picklists_data[field_name] = pv
                         self.enrichment_stats['picklists_added'] += 1
-                        # Don't add to field if new structure
-                        if not is_new_structure:
-                            field['picklist_values'] = picklist_values
                         enriched_count += 1
-                
-                # Extract formula
+
+                # Formulas
                 if org_field.get('calculated') and org_field.get('calculatedFormula'):
-                    formula = org_field['calculatedFormula']
-                    formulas_data[field_name] = formula
+                    formulas_data[field_name] = org_field['calculatedFormula']
                     self.enrichment_stats['formulas_added'] += 1
-                    # Don't add to field if new structure
-                    if not is_new_structure:
-                        field['formula'] = formula
                     enriched_count += 1
-                
-                # Add other enrichment data (not picklists/formulas)
+
+                # Other enrichment (length, reference_to, help_text, ...)
                 enriched_data = self._extract_non_picklist_formula_metadata(org_field)
                 for key, value in enriched_data.items():
-                    if key not in field or not field[key]:
-                        field[key] = value
+                    # In the tabular round-trip every cell is a string,
+                    # so empty == "" not None. Treat both as missing.
+                    current = row.get(key)
+                    if current in (None, ''):
+                        row[key] = value
                         enriched_count += 1
-            
-            enriched_fields.append(field)
-        
-        # Update schema object with enriched fields
-        schema['object']['fields'] = enriched_fields
-        
+
+            merged_rows.append(row)
+
         self.enrichment_stats['fields_enriched'] += enriched_count
-        
+        any_picklists = bool(single_picklists_data) or bool(multipicklists_data)
+
         if dry_run:
-            print(f"  [DRY RUN] Would enrich {enriched_count} fields in {object_name}")
-            if picklists_data:
-                print(f"  [DRY RUN] Would create picklists.yaml with {len(picklists_data)} picklists")
+            print(f"  [DRY RUN] Would enrich {enriched_count} cells in {object_name}.fields.toon")
+            if any_picklists:
+                print(
+                    f"  [DRY RUN] Would create picklists.toon with "
+                    f"{len(single_picklists_data)} single + {len(multipicklists_data)} multi picklists"
+                )
             if formulas_data:
-                print(f"  [DRY RUN] Would create formulas.yaml with {len(formulas_data)} formulas")
+                print(f"  [DRY RUN] Would create formulas.toon with {len(formulas_data)} formulas")
             return True
-        
-        if is_new_structure:
-            # Write to separate files (new structure)
-            
-            # 1. Write schema file (without picklist values and formulas)
-            with open(schema_file, 'w', encoding='utf-8') as f:
-                # Preserve metadata
-                if 'metadata' not in schema:
-                    schema['metadata'] = {}
-                schema['metadata']['enriched_date'] = datetime.now().isoformat()
-                schema['metadata']['has_picklists'] = len(picklists_data) > 0
-                schema['metadata']['has_formulas'] = len(formulas_data) > 0
-                
-                yaml.dump(schema, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-            
-            # 2. Write picklists file if we have picklists
-            if picklists_data:
-                picklists_file = obj_folder / 'picklists.yaml'
-                picklists_content = {
-                    'picklists': picklists_data,
-                    'metadata': {
-                        'object': object_name,
-                        'generated_date': datetime.now().isoformat(),
-                        'picklist_count': len(picklists_data),
-                        'note': 'Only ACTIVE picklist values are included'
-                    }
-                }
-                with open(picklists_file, 'w', encoding='utf-8') as f:
-                    f.write(f"# Picklist Values for {object_name}\n")
-                    f.write(f"# Generated: {datetime.now().isoformat()}\n")
-                    f.write(f"# Total Picklist Fields: {len(picklists_data)}\n")
-                    f.write("#\n")
-                    f.write("# IMPORTANT: Only ACTIVE picklist values are shown.\n")
-                    f.write("# Inactive values are excluded to prevent invalid data in code.\n")
-                    f.write("#\n\n")
-                    yaml.dump(picklists_content, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-                self.enrichment_stats['picklist_files_created'] += 1
-            
-            # 3. Write formulas file if we have formulas
-            if formulas_data:
-                formulas_file = obj_folder / 'formulas.yaml'
-                formulas_content = {
-                    'formulas': formulas_data,
-                    'metadata': {
-                        'object': object_name,
-                        'generated_date': datetime.now().isoformat(),
-                        'formula_count': len(formulas_data)
-                    }
-                }
-                with open(formulas_file, 'w', encoding='utf-8') as f:
-                    f.write(f"# Formula Definitions for {object_name}\n")
-                    f.write(f"# Generated: {datetime.now().isoformat()}\n")
-                    f.write(f"# Total Formula Fields: {len(formulas_data)}\n")
-                    f.write("#\n\n")
-                    yaml.dump(formulas_content, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-                self.enrichment_stats['formula_files_created'] += 1
-            
-            print(f"  ✅ Enriched {object_name}: {enriched_count} fields, {len(picklists_data)} picklists, {len(formulas_data)} formulas")
-        else:
-            # Write back to single file (legacy structure)
-            with open(working_file, 'w', encoding='utf-8') as f:
-                yaml.dump(schema, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-            
-            print(f"  ✅ Enriched {enriched_count} fields in {object_name} (legacy structure)")
-        
+
+        # Re-emit fields.toon via the shared tabular helper. This keeps
+        # the file in canonical TOON tabular form (single block, padded
+        # columns, computed reference_path for every Lookup / MasterDetail).
+        present_objects = discover_present_objects_from_dir(self.schema_dir)
+        gen_date = datetime.now().isoformat()
+        emit_fields_tabular(
+            output_file=fields_file,
+            obj_name=object_name,
+            fields=merged_rows,
+            present_objects=present_objects,
+            gen_date=gen_date,
+        )
+
+        # Bump enriched_date and refresh counts on the slim schema.toon.
+        if 'metadata' not in schema:
+            schema['metadata'] = {}
+        schema['metadata']['enriched_date'] = gen_date
+        if 'counts' not in schema:
+            schema['counts'] = {}
+        schema['counts']['fields'] = len(merged_rows)
+        schema['counts']['picklists'] = len(single_picklists_data) or schema['counts'].get('picklists', 0)
+        schema['counts']['multipicklists'] = len(multipicklists_data) or schema['counts'].get('multipicklists', 0)
+        schema['counts']['formulas'] = len(formulas_data) or schema['counts'].get('formulas', 0)
+        # Maintain file pointers — picklists/formulas may now exist where they didn't before.
+        if 'files' not in schema:
+            schema['files'] = {}
+        if any_picklists:
+            schema['files']['picklists'] = 'picklists.toon'
+        if formulas_data:
+            schema['files']['formulas'] = 'formulas.toon'
+        dump_toon(schema, schema_file)
+
+        # picklists.toon — two top-level blocks (picklists: single-select,
+        # multipicklists: multi-select). Step 10 may later upgrade the
+        # picklists: block to the `{label,value,count}` form when usage
+        # counts are merged in. The multipicklists: block always stays
+        # in `{label,value}` form (per-value counts are not obtainable
+        # for multi-select picklists via SOQL).
+        if any_picklists:
+            self._write_picklists_file(
+                obj_folder / 'picklists.toon',
+                object_name,
+                single_picklists_data,
+                multipicklists_data,
+                gen_date,
+            )
+            self.enrichment_stats['picklist_files_created'] += 1
+
+        # Formulas.toon
+        if formulas_data:
+            formulas_file = obj_folder / 'formulas.toon'
+            formulas_content = {
+                'formulas': formulas_data,
+                'metadata': {
+                    'object': object_name,
+                    'generated_date': gen_date,
+                    'formula_count': len(formulas_data),
+                },
+            }
+            dump_toon(formulas_content, formulas_file)
+            self.enrichment_stats['formula_files_created'] += 1
+
+        print(
+            f"  ✅ Enriched {object_name}: {enriched_count} cell-updates, "
+            f"{len(single_picklists_data)} picklists, "
+            f"{len(multipicklists_data)} multipicklists, "
+            f"{len(formulas_data)} formulas"
+        )
         self.enrichment_stats['objects_processed'] += 1
-        
         return True
+
+    def _write_picklists_file(
+        self,
+        picklists_file: Path,
+        obj_name: str,
+        single_picklists: Dict[str, List[Dict[str, str]]],
+        multipicklists: Dict[str, List[Dict[str, str]]],
+        gen_date: str,
+    ) -> None:
+        """Write picklists.toon with the canonical two-block layout.
+
+        Mirrors the shape emitted by Step 8 (`split_schema_by_object._emit_picklists_file`)
+        so re-running Step 9 after Step 8 produces a structurally
+        identical file (just with describe-derived data instead of
+        XML-derived).
+        """
+        doc: Dict[str, Any] = {}
+        if single_picklists:
+            doc['picklists'] = {
+                fname: {
+                    'values': [
+                        {'label': p.get('label') or p.get('value', ''),
+                         'value': p.get('value', '')}
+                        for p in pairs
+                    ],
+                }
+                for fname, pairs in single_picklists.items()
+            }
+        if multipicklists:
+            doc['multipicklists'] = {
+                fname: {
+                    'values': [
+                        {'label': p.get('label') or p.get('value', ''),
+                         'value': p.get('value', '')}
+                        for p in pairs
+                    ],
+                }
+                for fname, pairs in multipicklists.items()
+            }
+        meta = {
+            'object': obj_name,
+            'generated_date': gen_date,
+            'picklist_count': len(single_picklists),
+            'multipicklist_count': len(multipicklists),
+            'multipicklists_usage_status': 'not_applicable',
+            'note': 'Only ACTIVE picklist values are included',
+        }
+        if single_picklists:
+            meta['picklists_usage_status'] = 'not_collected'
+            meta['picklists_usage_not_collected_reason'] = 'pending'
+        else:
+            meta['picklists_usage_status'] = 'not_applicable'
+        doc['metadata'] = meta
+        dump_toon(doc, picklists_file)
     
     def enrich_all_objects(self, object_names: Optional[List[str]] = None, dry_run: bool = False):
         """
-        Enrich all objects in schema directory or specific list of objects.
-        Works with both new folder structure and legacy single-file structure.
+        Enrich all objects in the schema directory, or a specific list of
+        objects. Operates exclusively on the per-object TOON folder
+        structure; the legacy single-`.yaml`-file fallback was removed
+        when the pipeline migrated to TOON.
         """
         if object_names:
             objects_to_process = object_names
         else:
-            # Get all objects - check for both folder structure and legacy files
             objects_to_process = []
-            
-            # Check for folder structure (new)
             if self.schema_dir.exists():
                 for item in self.schema_dir.iterdir():
                     if item.is_dir() and not item.name.startswith('_'):
-                        # It's an object folder
                         objects_to_process.append(item.name)
-                    elif item.is_file() and item.suffix == '.yaml' and not item.name.startswith('_'):
-                        # Legacy single file (remove .yaml extension)
-                        objects_to_process.append(item.stem)
-            
-            # Remove duplicates
-            objects_to_process = list(set(objects_to_process))
+            objects_to_process = sorted(set(objects_to_process))
         
         print(f"\n🚀 Enriching {len(objects_to_process)} objects...")
         print(f"   Org: {self.org_alias}")
@@ -579,7 +672,7 @@ class SchemaEnricher:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Enrich Salesforce schema YAML files with picklist values and metadata',
+        description='Enrich Salesforce schema TOON files with picklist values and metadata',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -587,7 +680,7 @@ Examples:
   python/python3 enrich_schema_with_picklists.py
 
   # Enrich all objects with explicit org
-  python/python3 enrich_schema_with_picklists.py --org IBXDev_Maaz
+  python/python3 enrich_schema_with_picklists.py --org <your-org-alias>
 
   # Enrich specific objects
   python/python3 enrich_schema_with_picklists.py --objects Account,HealthcareProviderNpi
@@ -606,7 +699,7 @@ Note: Org alias is auto-detected from .sf/config.json (or .sfdx/sfdx-config.json
     parser.add_argument(
         '--org', '-o',
         required=False,
-        help='Salesforce org alias (e.g., IBXDev_Maaz). If not provided, auto-detects from .sf/config.json'
+        help='Salesforce org alias (e.g., <your-org-alias>). If not provided, auto-detects from .sf/config.json'
     )
     
     parser.add_argument(
@@ -616,8 +709,8 @@ Note: Org alias is auto-detected from .sf/config.json (or .sfdx/sfdx-config.json
     
     parser.add_argument(
         '--schema-dir',
-        default='config/schema/objects',
-        help='Path to schema objects directory (default: config/schema/objects)'
+        default=None,
+        help='Path to schema objects directory (default: <project-root>/config/schema/objects)'
     )
     
     parser.add_argument(

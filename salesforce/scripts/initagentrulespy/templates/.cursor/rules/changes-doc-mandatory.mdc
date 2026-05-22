@@ -1,0 +1,499 @@
+---
+description: Apply this rule at BOTH the START and the END of any Salesforce story, requirement, or bug-fix. At intake, mandates confirming the ticket number and transcribing any AC screenshot/visual source into text. At wrap-up, mandates authoring a structured changes/<slug>.md doc with a two-commit strategy (code first, doc second referencing the code commit hash).
+alwaysApply: true
+---
+
+# Mandatory intake + `changes/` doc workflow
+
+This rule covers TWO chronological touchpoints in every piece of Salesforce work — skip neither:
+
+1. **Intake** (work starts) — confirm the ticket / story / case number with the user, and transcribe any acceptance-criteria screenshot or visual source into plain text. The text you capture here is what feeds §3 of the doc later. See [`#intake-protocol`](#intake-protocol).
+2. **Wrap-up** (work ends) — author `changes/<short-kebab-slug>.md` from the matching template, then commit code first and the doc second, with the doc referencing the code commit hash. See [`#wrap-up-protocol`](#wrap-up-protocol).
+
+Both halves are part of the Definition of Done. Don't write code without the intake half, don't declare work complete without the wrap-up half.
+
+> **Be proactive at both ends.** If the user opens a feature/bug with a screenshot or new requirement, pause and run the intake protocol BEFORE writing any code. If work appears wrapped — deploy succeeded, tests pass, a commit just landed, the user said "done" / "looks good" / "works now" / "ready to ship" — surface the wrap-up half and offer to create the doc. Do not wait to be asked at either point.
+
+---
+
+## Intake triggers (run the intake protocol)
+
+Run [`#intake-protocol`](#intake-protocol) the FIRST time any of these happen in a conversation:
+
+- The user **attaches a screenshot** of acceptance criteria, a Jira / ADO ticket panel, an email with requirements, a Figma / wireframe link, a Slack thread, a PowerPoint slide, or any other visual source of requirements.
+- The user says "let's start <ticket>", "build me <feature>", "I need a fix for <bug>", "new story / requirement / change", "kicking off <story>", or otherwise opens a new piece of work.
+- The user gives a verbal/text spec but mentions a ticket / story / case number that's new to the conversation.
+- A new chat begins with a feature, bug, or refactor request and the user hasn't already established the ticket context.
+
+> **If you're not sure whether it's a fresh intake**, treat it as one. The cost of asking "confirming this is for <ticket>?" is trivial; the cost of building the wrong scope is huge.
+
+## Wrap-up triggers (run the wrap-up protocol)
+
+Run [`#wrap-up-protocol`](#wrap-up-protocol) the moment any of these happen:
+
+- Final Apex `sf project deploy start ... --test-level RunSpecifiedTests` came back `Succeeded` with all tests passing.
+- A real-commit OmniStudio / IP / DataRaptor run produced the expected records and the user confirmed the outcome.
+- A `git commit` just completed for `force-app/` changes that close out a ticket.
+- The user said "looks good", "works now", "all green", "ready", "done", "ship it", "wrap this up", or similar.
+- A pull request is being opened or pushed for the work.
+- **An org-wide retrieve run completed** (Phases 0 through 2.22 of [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md)). Use the retrieve template, not bugfix/story/refactor.
+
+If you're unsure whether work is "done", ask the user — don't skip the doc to avoid the question.
+
+---
+
+## Intake protocol
+
+When an intake trigger fires, you MUST run **all four steps below** before writing any code, opening any file for editing, or running any `sf` command. Treat the intake as a mandatory checklist; do not collapse it into a single message.
+
+### Step A — Confirm the ticket / story / case number explicitly
+
+State a read-back to the user and wait for confirmation:
+
+> _"Confirming this is for ticket **<TRACKER-NNN>** — _<one-line summary from the screenshot or ask>_. Is that right?"_
+
+Acceptable reference forms:
+
+| Source | Example | Use in doc |
+|---|---|---|
+| Jira-style | `PROJ-1234`, `STORY-12345` | `**Story / ticket:** [PROJ-1234](<url>) — <summary>` |
+| Azure DevOps | `Bug 567890`, `User Story 567890` | `**Story / ticket:** [User Story 567890](<url>) — <summary>` |
+| Salesforce Case Id | `500Ov000000XYZ` | `**Source case:** 500Ov000000XYZ — <summary>` |
+| Ad-hoc, no tracker | "Sandbox cleanup requested by John on 2026-04-10 over Slack" | `**Source:** Slack request from John (Account Lead), 2026-04-10` |
+
+Rules:
+- Do NOT proceed without a confirmed reference. "I'll figure it out later" is forbidden.
+- If the user contradicts your read-back, STOP and re-ask. Never silently move forward with a guessed ticket number.
+- If the user genuinely has no ticket (rare — usually for ad-hoc cleanup), capture a non-tracker reference per the table above and confirm THAT.
+
+The confirmed reference becomes the value of `**Story / ticket:** ...` in the header block of the changes doc at wrap-up time.
+
+### Step B — Transcribe any AC screenshot / visual source to TEXT
+
+Screenshots and other visual sources are unsearchable, rot when ticket trackers migrate, and don't survive PR review tooling that strips images. The changes doc must be readable a year from now without re-opening Jira. Therefore:
+
+If ANY visual source of requirements was provided (screenshot, Figma frame, wireframe, mockup, email attachment, slide), you MUST:
+
+1. **Read every AC, bullet, or requirement off the image** and write them as numbered plain text — `AC1`, `AC2`, `AC3`, etc.
+2. **Post the transcription back to the user in chat** and ask for confirmation: _"Here's what I read off the screenshot — correct me before I start. **AC1**: ... **AC2**: ..."_
+3. **Hold the confirmed text in working memory** through the entire piece of work. At wrap-up, it goes verbatim into §3 of the story template (or its equivalent table in bugfix / refactor templates).
+
+A transcription is not optional even if the screenshot is "obvious"; the doc still needs the text form.
+
+> **What counts as a visual source.** ANY of: a Jira / ADO screenshot, a Figma frame URL or export, a wireframe / mockup image, a slide deck snippet, a Lucidchart or whiteboard photo, an email with embedded image, a Salesforce list view screenshot showing expected fields, a comment thread screenshot. If it conveys requirements and isn't already plain text, transcribe it.
+
+### Step C — Capture explicit out-of-scope items
+
+If the ticket / screenshot / spec lists items that are explicitly NOT part of this work ("nice to have, but not now", "follow-up story", "won't fix in this round"), transcribe those into a separate list too. They become the `### Out of scope (explicitly)` block in §3 of the story doc — and prevent scope-creep arguments later.
+
+If no out-of-scope items were called out, ASK the user: _"Anything I should explicitly mark as out-of-scope so it doesn't get bundled into this story by mistake?"_
+
+### Step D — Stash the intake artefacts for wrap-up time
+
+The confirmed ticket reference + transcribed ACs + out-of-scope items form your **intake bundle**. Carry it through the work. When you author `changes/<slug>.md` later, drop the bundle into:
+
+- Header block → `**Story / ticket:** ...` line
+- §3 In scope → one row per transcribed AC (Source column references the visual / ticket that originated it)
+- §3 Out of scope → bullet list
+- §7 Acceptance criteria + verification → one row per AC, with `yes/no` evidence after the work is done
+
+The §3 ACs in the final doc MUST be the transcribed text from Step B — **never** a line that says "see attached screenshot" or "see ticket". A reader of `changes/` should not need any external system open to understand what was agreed to.
+
+---
+
+## Wrap-up protocol
+
+Everything from here to "Anti-patterns" governs the wrap-up half: the `changes/<slug>.md` doc, the two-commit strategy, the per-template substance hints, and the generic-adaptation notes for forks. The wrap-up doc draws its requirements (§3) from the intake bundle you captured above.
+
+### Definition of Done
+
+A piece of work is done when ALL of these are true:
+
+1. The intake protocol above was run at the start of the work — ticket confirmed, AC text transcribed and confirmed by the user.
+2. Code/metadata changes deploy cleanly to the working sandbox.
+3. Targeted Apex tests pass with the project's required coverage.
+4. Apex log retrieved and grepped for hidden `EXCEPTION|ERROR|FATAL` per [`test-deploy-ruleset.mdc`](test-deploy-ruleset.mdc).
+5. The two commits exist (see "Two-commit strategy" below): one for code, one for the `changes/` doc.
+6. The `changes/<slug>.md` doc is filled in — no stub sections, no `<...>` placeholders left over, and §3 contains the transcribed AC text from intake (NOT a screenshot reference).
+
+---
+
+## Pick a template
+
+Three templates ship at [`changes/_templates/`](changes/_templates/). Pick the one closest to the work; if it's a hybrid (e.g. story that fixed bugs along the way), use the closer-fitting template and add bug subsections inline.
+
+| Work type | Template | When to use |
+|---|---|---|
+| Bug fix | [`changes/_templates/_TEMPLATE_bugfix.md`](changes/_templates/_TEMPLATE_bugfix.md) | Defect, regression, production incident, unexpected behavior. Heavy on root-cause + symptom timeline. |
+| Story / feature / requirement | [`changes/_templates/_TEMPLATE_story.md`](changes/_templates/_TEMPLATE_story.md) | New functionality, ticket-driven work, business-requested capability. Heavy on requirements + acceptance criteria. |
+| Refactor / tech-debt / optimization | [`changes/_templates/_TEMPLATE_refactor.md`](changes/_templates/_TEMPLATE_refactor.md) | Internal restructuring, performance work, code cleanup, no user-visible behavior change. Heavy on functional-parity proof + behavioral invariants. |
+| Retrieve audit | [`changes/_templates/_TEMPLATE_retrieve.md`](changes/_templates/_TEMPLATE_retrieve.md) | After running the org-wide mirror retrieve described in [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md). Snapshot record of what changed in the org since the last mirror, with suspicion-analysis heuristics. **Saves at `changes/git/retrieve-<YYYY-MM-DD>-<HHMM>-<sandbox-alias>.md`** instead of the usual `changes/<slug>.md` path. Phase 3 of the runbook covers the exact workflow including the two-commit pattern. |
+
+Copy the template:
+
+```bash
+cp changes/_templates/_TEMPLATE_<type>.md changes/<short-kebab-slug>.md
+```
+
+---
+
+## Naming convention for the doc
+
+`changes/<short-kebab-slug>.md` — short, kebab-case, descriptive of the work itself (not of the ticket number).
+
+| Good | Bad |
+|---|---|
+| `account-trigger-recursion-fix.md` | `fix1.md` |
+| `add-bulk-import-omniscript.md` | `STORY-12345.md` |
+| `hfn-creation-async-batch-migration.md` | `refactor.md` |
+| `practitioner-creation-flow-issues.md` | `JIRA-fix.md` |
+
+A ticket reference belongs **inside** the doc (in the header block or §3 Requirements), not in the filename. Filenames must read well a year from now without the ticket tracker open.
+
+---
+
+## Required header block (top of every doc)
+
+Every `changes/<slug>.md` starts with this block — same shape across all four templates:
+
+```markdown
+**Date:** YYYY-MM-DD
+**Sandbox:** `{{ORG_ALIAS}}`
+**Lead:** <Name> (<role — e.g. developer, sysadmin, sysadmin + developer>)
+**Story / ticket:** [<TRACKER-NNN>](<url>) — <one-line summary>
+**Code commit(s):** [`<short-hash>`](#deploy-ids-and-commit-references) (latest; full list in section X)
+**Manifest:** [`manifest/<feature>.xml`](../manifest/<feature>.xml) (the deploy manifest used; contents inlined in section X)
+**Status:** Resolved / Delivered / In progress / Pending observation on <list>
+```
+
+Notes on each line:
+
+- **Sandbox** alias for this repo is **`{{ORG_ALIAS}}`** (confirm via `sf config get target-org` or `sf org list --all`).
+- **Story / ticket** comes from the intake protocol (Step A).
+- **Code commit(s)** — singular hash for one-shot work; comma-separated list for iterative threads (see "Same thread, same doc" below). `<short-hash>` is the first 8 chars of the code commit SHA captured in step 3 of the two-commit strategy.
+- **Manifest** — the `manifest/*.xml` file used for the deploy. This field is REQUIRED whenever the work involved a `sf project deploy start` or `sf project retrieve start` invocation with `--manifest`. Inline the manifest's full XML content in the "Deploy IDs and commit references" section of the doc — reviewers shouldn't have to open a second file to know exactly what got deployed.
+
+---
+
+## Same thread, same doc — iterative wrap-ups
+
+When a conversation thread iterates on the SAME flow / class / OmniScript / FlexiPage / situation — e.g. _"fix the IP"_ → committed → _"found another issue"_ → committed → _"now this edge case"_ → committed — use ONE `changes/<slug>.md` doc, not three. Multiple small docs for the same thread fragment the history.
+
+### Reuse pattern
+
+1. **First wrap-up trigger in the thread** — create `changes/<slug>.md` with a slug that describes the OVERALL situation (not "fix-1"). Commit code (`<hash-A>`), then commit the doc (`<hash-B>`).
+2. **Second wrap-up trigger in the SAME thread** —
+   - Commit the new code on its own (`<hash-C>`).
+   - **Edit the EXISTING `changes/<slug>.md`** — do NOT create a new doc. Update:
+     - Header `**Code commit(s):**` line — append `, [`<hash-C>`](...)`.
+     - "Revision log" section (template § near the top) — add a new row with date, hash, what changed, why.
+     - "Key changes — diff highlights" — append a new sub-section for the new diff.
+     - Implementation summary / root cause — add a new sub-section as needed.
+     - TL;DR (§1) — restate the CUMULATIVE state, not just the latest patch.
+     - Deploys table — add a new row for the new deploy.
+   - Commit the doc edits separately (`<hash-D>`).
+3. **N-th wrap-up trigger** — same pattern. By thread end the doc has N code commits + (≥N) doc commits, with the Revision log telling the story chronologically.
+
+### When to start a NEW doc anyway, even in the same thread
+
+- The work shifts to a **clearly different feature / system / object** — not iterations of the same problem.
+- The user explicitly says _"new ticket"_ / _"new story"_ / _"let's start something else"_ and the intake protocol confirms a new ticket reference.
+- The previous doc has already **merged to `main`** and is treated as immutable history. (Open a follow-up doc; cross-link from it back to the merged one.)
+
+### When the thread is so churny that diffs blur together
+
+If iteration #5 invalidates iteration #2, write the LATEST stable state in §1 (TL;DR) and §7 (verification). Keep the intermediate Revision-log rows so a future reader can see the path, but mark superseded ones explicitly: `(superseded by <hash> — see row N+M)`.
+
+---
+
+## Two-commit strategy (mandatory)
+
+**Always two commits. Code first, doc second.** This keeps the code change reviewable on its own and lets the doc reference the exact commit hash it documents.
+
+### Step 1 — Stage code only (selective staging — parallel-agent safe)
+
+**Stage ONLY the files YOU touched.** Other agents (or the user, or scheduled jobs) may be working in the same repo concurrently. Blanket-adding whole directories silently grabs their in-flight changes and mangles their commits.
+
+#### ❌ DO NOT do this
+
+```bash
+# Forbidden — sweeps in EVERYTHING modified in those directories, including
+# files another agent is mid-edit on. Even if you "know" you're alone, get
+# in the habit of explicit staging — sandboxes are shared, automation runs
+# in the background, and your future self might be working in two tabs.
+git add force-app/ scripts/ manifest/ config/
+```
+
+#### ✓ DO this — name every file explicitly
+
+```bash
+# Stage the exact files you intentionally modified.
+git add force-app/main/default/classes/MyClass.cls \
+        force-app/main/default/classes/MyClass.cls-meta.xml \
+        manifest/my-feature.xml
+
+# Then sanity-check: ONLY your files should be staged, nothing else.
+git status -s
+```
+
+If `git status` shows other modified files you didn't touch (`M force-app/main/default/lwc/someOtherCmp/...`), **leave them alone**. They belong to another piece of work. Your commit must NOT include them.
+
+#### Recovering "what did I touch?" if you lost track
+
+```bash
+# Working-tree changes since the last commit (everything you've edited):
+git diff --name-only
+
+# Or, if some of your work is already staged:
+git diff --name-only --cached
+git diff --name-only HEAD
+```
+
+Cross-reference the result against your own change log (the chat history, the manifest you're about to deploy, the file paths you've been editing). When in doubt, ask the user — better than committing a file that wasn't yours.
+
+#### Exception: org-wide retrieve audit
+
+The retrieve audit workflow ([`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md)) follows its OWN staging rules — by design it commits the entire mirrored `force-app/` snapshot as a single "mirror" commit, then the audit doc as the second commit. Don't try to subdivide a retrieve commit into per-file stages; the whole-org snapshot IS the unit of work. Phase 3 of the retrieve runbook covers the exact pattern (`mirror(<alias>): sync from <alias> @ ...` + `docs(retrieve): audit ...`).
+
+For every OTHER kind of work, the selective-staging rule above is non-negotiable.
+
+### Step 2 — Commit code with multi-line message
+
+Use a HEREDOC so the message formats correctly:
+
+```bash
+git commit -m "$(cat <<'EOF'
+<subject line, max 72 chars, imperative mood, no period>
+
+<paragraph 1: what changed and why, in plain English>
+
+<bullet list of every meaningful sub-change, e.g.
+  - <File or component>: <one-line change>
+  - <File or component>: <one-line change>
+>
+
+<paragraph 2 if needed: any caveats, temporary changes, drift>
+EOF
+)"
+```
+
+### Step 3 — Capture the commit hash
+
+```bash
+git log -1 --format='%H%n%h%n%s'
+```
+
+The short hash (line 2 of output) is what you embed in the doc's header block and in §13 (or whichever is the "Deploy IDs and commit references" section).
+
+### Step 4 — Author the doc
+
+Copy a template (per the table above), fill it in, embed the short hash from step 3 in the header block.
+
+### Step 5 — Commit the doc separately
+
+```bash
+git add changes/<slug>.md
+git commit -m "$(cat <<'EOF'
+docs: <short-title-of-the-work> (refs <short-hash-from-step-3>)
+
+<one-paragraph summary of what the doc covers>
+
+Saved at changes/<slug>.md.
+Code commit referenced: <short-hash>.
+EOF
+)"
+```
+
+### Step 6 — Verify both commits and clean tree
+
+```bash
+git log -2 --format='%H%n  %h  %s%n'
+git status -s
+```
+
+Report both hashes back to the user.
+
+### Variant — retrieve audits
+
+For the **retrieve audit** template, the same two-commit pattern applies but the "code" commit is a mirror snapshot (the retrieved metadata diff), not a feature change. The full workflow with the exact commit-message subjects (`mirror(<alias>): sync from <alias> @ …` and `docs(retrieve): audit … (refs <hash>)`) lives in [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md) Phase 3. Use that recipe rather than this one.
+
+---
+
+## What good looks like
+
+Three short examples (one per template) showing the kind of substance a section needs.
+
+### Bug-fix example — root cause section
+
+```markdown
+### Family 1 — Formula field write (`IsActive -> Status_Active__c`)
+
+**Field metadata** (verified by anonymous Apex `Schema.DescribeFieldResult`):
+
+| Object | Field | IsCreatable | IsUpdatable | IsCalculated |
+|---|---|---|---|---|
+| `Order__c` | `Status_Active__c` | false | false | true (formula) |
+
+The DataRaptor `DR_OrderStatus_1` mapped a top-level `IsActive` input to the
+formula field `Status_Active__c`. The formula is `IF(Status__c = 'Active', true, false)` —
+Salesforce always derives it; a client-supplied value is never persisted.
+
+Why the prior package version tolerated it: silent strip before DML.
+Why the new version rejects it: strip removed; Salesforce raises
+`Unable to create/update fields: Status_Active__c`.
+```
+
+### Story example — design decisions section
+
+```markdown
+### 4.1 — Async vs sync HFN creation for the new bulk import
+
+**Decision:** Run HFN creation in a Queueable chained from the OmniScript, so
+the user gets a sub-3-second response and HFN records appear within ~30 seconds.
+
+**Alternatives considered:**
+
+| Option | Pros | Cons | Why rejected |
+|---|---|---|---|
+| Queueable chain (chosen) | <3s user response | Eventual consistency window | (chosen) |
+| Synchronous in OmniScript | Records visible immediately | Blocks user 18-25s on bulk imports | UX unacceptable per AC2 |
+| Batch Apex | Handles >50 records cleanly | Slower kickoff (~5min) | Most imports are <20 records; latency unacceptable |
+```
+
+### Refactor example — behavioral invariants section
+
+```markdown
+| Invariant | How preserved | Evidence |
+|---|---|---|
+| `AccountHandler.afterUpdate` writes AccountHistory for `Status__c` and `OwnerId` | Kept the two `update acc.Status__c` and ownership-transfer paths byte-equivalent | `AccountHandlerTest.testStatusHistory` and `testOwnerHistory`, both pass |
+| Trigger fires only in `BeforeInsert`/`BeforeUpdate` contexts | Context router preserved at top of new `AccountHandler.run()` | `AccountHandlerTest.testTriggerContextRouting` |
+| FLS check uses `with sharing` | New service class declared `with sharing` (was `with sharing` before) | Code review + grep for `without sharing` returns no hits |
+```
+
+---
+
+## Diff-style highlights (mandatory section in every dev-work template)
+
+The `git diff` between two commits is the canonical record of what changed, but for several Salesforce metadata types it's effectively unreadable:
+
+- **OmniScripts / Integration Procedures / DataRaptors** — XML element trees with auto-generated `propertySet` blobs; the meaningful change is a needle in a haystack.
+- **FlexiPages / Page Layouts** — XML hierarchies where a one-property change buries inside hundreds of unchanged lines.
+- **Validation rules / Formula fields** — the formula text IS the change, and it's usually wrapped in CDATA which most diff renderers mangle.
+- **Profiles / Permission sets** — diff signal is buried under sorted-XML re-orderings that aren't real changes.
+- **New Apex classes / triggers** — the entire file is "+" in the diff; a reader can't tell which methods are the actual point of the work.
+
+For these (and for code review more broadly), each dev-work template (bugfix, story, refactor) carries a **"Key changes — diff-style highlights"** section. Use it for ANY change where `git diff` alone won't make a reviewer's job obvious. Two patterns by change size:
+
+### Small / medium changes — inline diff snippet
+
+Paste the meaningful diff in a fenced ```` ```diff ```` block. Trim noise. Add a one-line commentary above it.
+
+```markdown
+### N.1 — `OrderProcessing_Procedure_3` — switch which date feeds the activation step
+
+**File:** [`force-app/main/default/omniIntegrationProcedures/OrderProcessing_Procedure_3.oip-meta.xml`](...)
+**Type of change:** Modified
+**Why:** The activation step should read the order's `Confirmed_Date__c` (when the customer accepts) rather than the auto-populated `CreatedDate` (the record's first-save timestamp). The two differ whenever an order sits in draft for a day or more, and the downstream invoice was using the wrong value.
+
+\```diff
+   <element>
+     <name>setActivationDate</name>
+-    <propertySetConfig>{"dataFrom":"$Steps.OrderLookup.records[0].CreatedDate"}</propertySetConfig>
++    <propertySetConfig>{"dataFrom":"$Steps.OrderLookup.records[0].Confirmed_Date__c"}</propertySetConfig>
+   </element>
+\```
+```
+
+### Large changes (new file, full rewrite, > ~100 lines) — line refs + key method names
+
+```markdown
+### N.2 — `OrderActivationService.cls` — NEW class (348 lines)
+
+**File:** [`force-app/main/default/classes/OrderActivationService.cls`](...)
+**Type of change:** Created
+**Why:** Order activation logic was inlined in the calling OmniScript; pulled it out into a testable service class so other entry points (Apex API, scheduled batch, REST endpoint) can reuse the same activation rules instead of duplicating the flow.
+
+Whole file is too long to paste inline. Key sections:
+
+- Lines 1-25: header + Apex docstring + class declaration with `@SuppressWarnings('PMD.CognitiveComplexity')`.
+- Lines 27-78: public entry point `activate(Order__c order)` — the only method other code should call.
+- Lines 80-145: private `validateInput(...)`, `loadAccount(...)`, `loadLineItems(...)` — defensive null / inactive-record checks before any DML.
+- Lines 147-260: private `applyActivationDates(...)` — fans out across `Order__c`, `OrderItem__c`, and any linked `Contract__c` records; this is the meat of the activation.
+- Lines 262-310: private `recordOnAuditTrail(...)` — writes a row to a custom `Activation_Log__c` so admins can see what fired and when.
+- Lines 312-348: nested `@TestVisible` data-class wrappers for clean test setup.
+
+See commit `<short-hash>` for the full file; `OrderActivationServiceTest.cls` exercises every public method end-to-end.
+```
+
+### When the diff is trivial enough to skip
+
+If the change is 1-2 lines of plain Apex / metadata and `git diff` shows it cleanly without context, the row can collapse to:
+
+```markdown
+### N.3 — `MyTrigger.trigger` — one-line guard
+
+**File:** [`...`](...) — see commit `<short-hash>` (1-line addition, `git diff` is sufficient).
+```
+
+Don't pad. The point of this section is to surface the changes that AREN'T obvious from diff.
+
+---
+
+## Generic adaptation notes (for use in other Salesforce orgs)
+
+This rule is portable. When dropping it (and the templates) into a different Salesforce repo:
+
+1. **Sandbox alias:** the templates use `<sandbox-alias>` placeholder. Set it to whatever your project's default `sf` alias is (check `sf config get target-org`).
+2. **Lead name:** customize the `<Name>` placeholder per author. Some teams pre-fill this in the templates.
+3. **No org-specific terminology** is baked into the rule or templates. They reference universal Salesforce concepts: Apex, LWC, Aura, OmniStudio, flows, validation rules, profiles, permission sets, custom metadata, `sf` CLI deploy/retrieve/test commands.
+4. **`changes/` folder:** the rule assumes `changes/` at repo root. If your project uses a different convention (e.g. `docs/changes/`), update this rule and the templates' relative paths together.
+5. **Two-commit strategy:** universal — works in any git repo. The HEREDOC commit-message format works in bash and zsh; PowerShell users need to adjust.
+6. **Test coverage thresholds, deploy commands, retrieval rules:** unchanged — the rule defers to `test-deploy-ruleset.mdc` and the project's other Salesforce rules.
+
+For a real worked example of the bug-fix template applied to a real production issue, see [`changes/practitioner-creation-flow-issues.md`](changes/practitioner-creation-flow-issues.md) in this repo. (That example is {{ORG_NAME}}-specific in its content; read it for the **structure**, not the domain content. It will not exist if you drop this ruleset into a different org.)
+
+---
+
+## Anti-patterns
+
+### Intake-time anti-patterns
+
+- **Starting code without a confirmed ticket number.** Even if the user "just wants this small thing", run Step A of the intake protocol first. Two minutes of confirmation is cheaper than two hours of misbuilt scope.
+- **Treating a screenshot as the source of truth.** Screenshots break — when trackers migrate, when PR review tools strip images, when reviewers don't open Jira. Transcribe to text immediately (Step B) and have the user confirm the transcription. The text is the source of truth.
+- **Letting "see attached screenshot" land in the changes doc.** §3 of the doc must contain the actual AC text. If you find yourself writing "see attached image", go back and finish Step B.
+- **Silently fixing the ticket number after a typo / wrong read.** If you misread the ticket on first attempt, STOP and re-read-back to the user. Don't paper over by quietly correcting it in the next message.
+- **Skipping the out-of-scope question** when the user gives ACs without explicit non-goals. Always ask (Step C). Out-of-scope clarity prevents the most common review-time argument: "why didn't you also do X?"
+
+### Wrap-up-time anti-patterns
+
+- **Skipping the doc because "the commit message says it all."** Commit messages don't have rollback procedures, verification matrices, or open follow-ups. The doc does.
+- **Inlining the doc into the same commit as the code.** Breaks the two-commit guarantee; reviewers can't separate code review from doc review.
+- **Stub sections** — `<TODO>` or `<...>` left in a finished doc. If a section truly doesn't apply, write `n/a` with a one-line reason.
+- **Renaming the templates** — keep the `_TEMPLATE_<type>.md` naming so they sort to the top of the folder and are clearly distinct from real docs.
+- **Forgetting to delete the `<!-- ... -->` guidance comments** when you fill in a template. The final doc should be clean prose.
+- **Using a ticket number as the doc filename.** Ticket numbers expire when trackers migrate; the filename should describe the work.
+- **Rewriting the ACs at wrap-up time** from memory or from the original screenshot, instead of pasting the intake transcription verbatim. The whole point of the intake step was to lock the agreed text down before code touched the keyboard.
+
+### Parallel-agent / staging anti-patterns
+
+- **`git add force-app/`** (blanket-add a top-level dir) when another agent or human might be active in the repo. Use selective staging — name every file explicitly. The only documented exception is the org-wide retrieve workflow.
+- **Including someone else's file in your commit "because it was already modified".** If you didn't touch it, leave it. Either the original author will commit it later, or it's churn that doesn't belong to you.
+- **Quietly reverting another agent's in-flight edit** by checking out HEAD on files you don't recognise. If files are dirty when you arrive, ask the user — never silently revert.
+
+### Doc-content / package-manifest anti-patterns
+
+- **Missing `**Manifest:**` line in the header block** when the work involved a `--manifest` deploy/retrieve. The doc must name the manifest file and inline its XML content in the Deploy IDs section. Reviewers shouldn't have to open a second file to know what was deployed.
+- **Skipping the "Key changes — diff highlights" section** for OmniScripts / IPs / DRs / FlexiPages / layouts. The raw `git diff` for those is unreadable; the doc must surface the meaningful change.
+- **Including the entire 500-line Apex file in a diff fence**. For changes that big, use line-range + method-name commentary (see "Large changes" pattern above), not a 500-line code dump.
+
+### Same-thread / multi-doc anti-patterns
+
+- **Spawning a new `changes/<slug>.md` for each iteration** of the same fix. Use ONE doc for the thread; update the Revision log + add a new Diff-highlights row + append the new commit hash to the header. Multiple small docs fragment the history.
+- **Letting the doc's TL;DR fall behind reality** when iterating. After each new code commit on the same thread, restate §1 to describe the CUMULATIVE state of the fix, not just what the latest commit did.
+- **Deleting a superseded approach from the Revision log** so the doc "reads cleaner". Mark it `(superseded by <hash>)` and leave it; the path matters to the next person who hits the same problem.
+
+---
+
+## Self-application
+
+This ruleset itself was added in a single code commit — no `changes/` doc was written for it (avoiding chicken-and-egg recursion when the rule didn't yet exist). Every subsequent piece of Salesforce work in this repo (and any repo that adopts this rule) MUST follow the rule.

@@ -6,7 +6,7 @@ Salesforce Schema Auto-Generator
 Fully automated script that:
 1. Detects your default Salesforce org from .sf/config.json
 2. Retrieves all standard and custom objects (excluding History, Share, Feed, etc.)
-3. Generates a complete ER schema YAML
+3. Generates a complete ER schema in TOON (Token-Oriented Object Notation, v3.0)
 
 NO INPUTS REQUIRED - Just run it!
 
@@ -27,12 +27,21 @@ from datetime import datetime
 import platform
 import shutil
 
+# Allow `from _toon_io import ...` regardless of cwd. The helper module
+# sits next to this script under scripts/schemapy/.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _toon_io import find_project_root  # noqa: E402
+
+
 class AutoSchemaGenerator:
     """Fully automated Salesforce schema generator."""
-    
+
     def __init__(self):
         """Initialize by detecting project structure."""
-        self.project_root = Path.cwd()
+        # Locate the project root by walking up from THIS file's location,
+        # not from cwd, so the orchestrator works no matter where it is
+        # invoked from.
+        self.project_root = find_project_root()
         self.org_alias = None
         self.objects_path = None
         self.all_sobjects = []
@@ -398,28 +407,88 @@ class AutoSchemaGenerator:
         print("\n" + "=" * 80)
         print("Step 9: Enriching Schema with Picklist Values & Metadata")
         print("=" * 80)
-        
+
         try:
-            # Run the schema enricher script
             enricher_script = Path(__file__).parent / 'enrich_schema_with_picklists.py'
-            
             result = subprocess.run(
                 [sys.executable, str(enricher_script), '--org', self.org_alias],
-                check=False
+                check=False,
             )
-            
             if result.returncode == 0:
                 print("\n✓ Schema enrichment completed successfully!")
                 return True
             else:
                 print(f"\n✗ Schema enrichment failed with exit code {result.returncode}")
                 print("  Warning: Schemas exist but may lack picklist values")
-                print("  You can manually run: python3 scripts/enrich_schema_with_picklists.py --org <org-alias>")
+                print("  You can manually run: python3 scripts/schemapy/enrich_schema_with_picklists.py --org <org-alias>")
                 return False
-                
         except Exception as e:
             print(f"\n✗ Error running schema enricher: {e}")
             print("  Warning: Schemas exist but may lack picklist values")
+            return False
+
+    def collect_usage_stats(self):
+        """Step 10: Pull picklist + RecordType usage counts from the org."""
+        print("\n" + "=" * 80)
+        print("Step 10: Collecting Picklist + RecordType Usage Counts")
+        print("=" * 80)
+        try:
+            script = Path(__file__).parent / 'collect_usage_stats.py'
+            result = subprocess.run(
+                [sys.executable, str(script), '--org', self.org_alias],
+                check=False,
+            )
+            if result.returncode == 0:
+                print("\n✓ Usage stats collection completed successfully!")
+                return True
+            print(f"\n✗ Usage stats collection failed with exit code {result.returncode}")
+            print("  Warning: picklists.toon may lack per-value record counts")
+            print("  You can manually run: python3 scripts/schemapy/collect_usage_stats.py --org <org-alias>")
+            return False
+        except Exception as e:
+            print(f"\n✗ Error running usage-stats collector: {e}")
+            return False
+
+    def detect_junctions(self):
+        """Step 11: Detect junction objects from the schema + record counts."""
+        print("\n" + "=" * 80)
+        print("Step 11: Detecting Junction Objects")
+        print("=" * 80)
+        try:
+            script = Path(__file__).parent / 'detect_junctions.py'
+            result = subprocess.run(
+                [sys.executable, str(script), '--org', self.org_alias],
+                check=False,
+            )
+            if result.returncode == 0:
+                print("\n✓ Junction detection completed successfully!")
+                return True
+            print(f"\n✗ Junction detection failed with exit code {result.returncode}")
+            print("  Warning: _junctions.toon may be missing or stale")
+            print("  You can manually run: python3 scripts/schemapy/detect_junctions.py --org <org-alias>")
+            return False
+        except Exception as e:
+            print(f"\n✗ Error running junction detector: {e}")
+            return False
+
+    def generate_er(self):
+        """Step 12: Render ER.md from _junctions.toon (offline; no SOQL)."""
+        print("\n" + "=" * 80)
+        print("Step 12: Rendering ER.md")
+        print("=" * 80)
+        try:
+            script = Path(__file__).parent / 'generate_er.py'
+            result = subprocess.run(
+                [sys.executable, str(script)], check=False
+            )
+            if result.returncode == 0:
+                print("\n✓ ER.md rendered successfully!")
+                return True
+            print(f"\n✗ ER rendering failed with exit code {result.returncode}")
+            print("  You can manually run: python3 scripts/schemapy/generate_er.py")
+            return False
+        except Exception as e:
+            print(f"\n✗ Error running ER renderer: {e}")
             return False
     
     def run(self):
@@ -462,13 +531,25 @@ class AutoSchemaGenerator:
         # Step 8: Split schema for AI consumption
         if not self.split_schema():
             print("  Warning: Schema was generated but not optimized for AI agents")
-            print("  You can manually run: python3 scripts/split_schema_by_object.py")
-        
+            print("  You can manually run: python3 scripts/schemapy/split_schema_by_object.py")
+
         # Step 9: Enrich schema with picklist values and metadata
         if not self.enrich_schema():
             print("  Warning: Schema files may be missing picklist values")
-            print("  You can manually run: python3 scripts/enrich_schema_with_picklists.py --org <org-alias>")
-        
+            print("  You can manually run: python3 scripts/schemapy/enrich_schema_with_picklists.py --org <org-alias>")
+
+        # Step 10: Live usage counts (picklist values + RecordTypes)
+        if not self.collect_usage_stats():
+            print("  Warning: picklists.toon may lack per-value record counts")
+
+        # Step 11: Detect junction objects from schema + counts
+        if not self.detect_junctions():
+            print("  Warning: _junctions.toon may be missing or stale")
+
+        # Step 12: Render ER.md from junctions (offline)
+        if not self.generate_er():
+            print("  Warning: ER.md may be missing or stale")
+
         # Success!
         print("\n" + "=" * 80)
         print("✓ COMPLETE!")
@@ -478,17 +559,21 @@ class AutoSchemaGenerator:
         print(f"  - Org: {self.org_alias}")
         print(f"  - Total sObjects in org: {len(self.all_sobjects)}")
         print(f"  - Objects retrieved: {len(objects_needed)}")
-        print(f"  - Large schema file: config/salesforce-er-schema.yaml")
+        print(f"  - Large schema file: config/salesforce-er-schema.toon")
         print(f"  - Optimized schemas: config/schema/ (USE THIS FOR AI AGENTS)")
+        print(f"  - Encoding: TOON (Token-Oriented Object Notation, v3.0)")
         print()
         print("Schema Structure:")
-        print("  - config/schema/_index.yaml - Master index for quick lookup")
-        print("  - config/schema/_search_index.yaml - Search all fields")
-        print("  - config/schema/objects/<Object>.yaml - Individual object schemas (ENRICHED)")
-        print("  - config/schema/categories/*.yaml - Objects grouped by category")
+        print("  - config/schema/_index.toon - Master index for quick lookup")
+        print("  - config/schema/_search_index.toon - Search all fields")
+        print("  - config/schema/_junctions.toon - Detected junction objects + parents (Step 11)")
+        print("  - config/schema/objects/<Object>/{schema,picklists,formulas}.toon - Per-object (ENRICHED)")
+        print("  - config/schema/categories/*.toon - Objects grouped by category")
+        print("  - ER.md (project root) - Mermaid ER of every detected junction (Step 12)")
         print()
         print("Schema Enrichment:")
         print("  - Picklist values extracted from org (active values only)")
+        print("  - Picklist + RecordType per-value record counts (Step 10)")
         print("  - Formula definitions included")
         print("  - Default values captured")
         print("  - Field constraints (required, unique, external_id) documented")
@@ -496,6 +581,7 @@ class AutoSchemaGenerator:
         print("Next steps:")
         print("  - AI agents should use config/schema/ directory")
         print("  - Review config/schema/README.md for usage guide")
+        print("  - Skim ER.md at the project root for cross-object relationships")
         print("  - Re-run this script when metadata changes")
         print()
         

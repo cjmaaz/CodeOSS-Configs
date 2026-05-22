@@ -1,0 +1,95 @@
+---
+alwaysApply: true
+---
+---
+# Coding Style Format Ruleset
+---
+
+## 🚨 MANDATORY: Retrieve BEFORE reformatting
+
+Before restyling any Apex / LWC / Aura / OmniScript file, **retrieve the current version from `{{ORG_ALIAS}}`** — the local copy may be stale, and a styling-only diff applied to a stale file silently reverts other people's recent changes on deploy.
+
+```bash
+sf project retrieve start --metadata ApexClass:<Name> -o {{ORG_ALIAS}}
+sf project retrieve start --metadata LightningComponentBundle:<bundle> -o {{ORG_ALIAS}}
+```
+
+See [`sf-cli-commands.mdc`](./sf-cli-commands.mdc) for the full retrieve surface.
+
+---
+
+## Method Parameters and Arguments
+
+- **Rule:**  
+  - Do **not** split method parameters or arguments into multiple lines.  
+  - Always keep all parameters and arguments on a single line, even if the line becomes long.
+
+  **Examples:**
+
+  ```apex
+  // Correct
+  public void doSomething(String name, Integer age, Boolean isActive, Decimal annualRevenue, Date joinDate) {
+      // logic
+  }
+  doSomething('John Doe', 35, true, 1000000.00, Date.today());
+
+  // Incorrect
+  public void doSomething(
+      String name,
+      Integer age,
+      Boolean isActive,
+      Decimal annualRevenue,
+      Date joinDate
+  ) {
+      // logic
+  }
+  doSomething(
+      'John Doe',
+      35,
+      true,
+      1000000.00,
+      Date.today()
+  );
+  ```
+
+## SOQL Query Formatting
+
+- **Rule:**  
+  - Write SOQL statements **in a single line** if the total character count is **200 or below**.
+  - If a SOQL statement exceeds **200 characters**, format it with **multiple lines**, splitting at logical boundaries (e.g., after SELECT, FROM, WHERE, AND, ORDER BY, etc.) for better readability.
+
+  **Examples:**
+
+  ```apex
+  // Correct: SOQL less than or equal to 200 chars on a single line
+  Account acc = [SELECT Id, Name, Industry, AnnualRevenue, Phone FROM Account WHERE CreatedDate = TODAY];
+
+  // Correct: SOQL more than 200 chars split across lines
+  List<Account> accts = [
+      SELECT Id, 
+             Name, 
+             Industry, 
+             AnnualRevenue, 
+             Phone, 
+             BillingStreet, 
+             BillingCity, 
+             BillingState, 
+             BillingPostalCode, 
+             BillingCountry, 
+             Description 
+        FROM Account 
+       WHERE CreatedDate = TODAY 
+         AND AnnualRevenue > 1000000 
+       ORDER BY AnnualRevenue DESC 
+       LIMIT 100
+  ];
+  ```
+
+---
+
+## Summary
+
+- **Always keep method parameters and arguments in a single line.**
+- **Break SOQL into multiple lines only when the query exceeds 200 characters.**
+
+---

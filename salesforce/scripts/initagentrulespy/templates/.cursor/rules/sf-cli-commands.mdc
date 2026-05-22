@@ -1,0 +1,1314 @@
+---
+description: Apply this rule when invoking the Salesforce CLI (`sf`) for any purpose — deploys, retrieves, org management, data operations, Apex execution, package work, code analysis, or scratch/sandbox provisioning. Contains the complete `sf` command reference organized by topic with flags, examples, and {{ORG_NAME}}-specific conventions.
+alwaysApply: true
+---
+# Salesforce CLI (`sf`) Command Reference
+
+Canonical reference for the new-style `sf` CLI (oclif-based). Replaces legacy `sfdx` commands. Full source: https://github.com/salesforcecli/cli
+
+---
+
+## 🚨 MANDATORY: Retrieve BEFORE editing
+
+**Local files are NOT the source of truth — `{{ORG_ALIAS}}` is.** Teammates and admins deploy directly to the org, so anything on disk may be stale. Before modifying ANY metadata (Apex, LWC, Aura, layouts, FlexiPages, OmniScripts, Integration Procedures, flows, fields, perm sets, etc.), **you MUST retrieve the component(s) first**:
+
+```bash
+sf project retrieve start --metadata <Type>:<Name> -o {{ORG_ALIAS}}         # single component
+sf project retrieve start --manifest manifest/<feature>.xml -o {{ORG_ALIAS}} # scoped manifest
+```
+
+Skipping this step silently overwrites newer org state on your next deploy. The `project retrieve start` section below has the full flag reference.
+
+---
+
+## Org Conventions
+
+1. **Default target org is `{{ORG_ALIAS}}`** (sandbox). Every command in this repo assumes `-o {{ORG_ALIAS}}` (equivalent to `--target-org {{ORG_ALIAS}}`).
+2. Confirm the org list with `sf org list --all` before destructive ops.
+3. Source API version is **66.0**; package directory is `force-app/`.
+4. Manifests live in `manifest/<feature>.xml` — create a NEW one per feature, never overwrite `apex.xml` / `mainpackage.xml`.
+5. `--ignore-conflicts` is used in this repo because source tracking is not the source of truth — trust the manifest.
+6. After ANY Apex execution, fetch logs (`sf apex get log --log-id recent`) and grep for `EXCEPTION|ERROR|FATAL`. See [`test-deploy-ruleset.mdc`](./test-deploy-ruleset.mdc).
+
+---
+
+## Global Flags (available on most commands)
+
+| Flag | Short | Purpose |
+|------|-------|---------|
+| `--target-org <alias>` | `-o` | Target org alias/username. Required unless `target-org` is set in config. **Most-used shortcut in this repo** (`-o {{ORG_ALIAS}}` everywhere). |
+| `--target-dev-hub <alias>` | `-v` | Dev Hub alias (for scratch/package commands). |
+| `--api-version <n>` | | Override the API version for this command. |
+| `--json` | | Output machine-readable JSON (pipe to `jq`). |
+| `--wait <minutes>` | `-w` | Poll/wait timeout for async ops. |
+| `--async` | | Return immediately; check status via `resume`/`report`. |
+| `--verbose` | | Extra logging. |
+| `--concise` | | Trim output (deploy / test summaries). |
+| `--no-prompt` | `-p` | Skip interactive confirmation (varies — sometimes `-r`, see per-topic tables). |
+| `--flags-dir <dir>` | | Import flag values from a directory (advanced). |
+
+> **Long form vs short form.** Every example below preserves the long form for readability. The per-topic "Common short flags" tables list the equivalent short forms — both are valid, and `sf` accepts them interchangeably. Short forms are case-sensitive.
+
+> **Legacy aliases.** Most `sf` commands still accept their pre-unification aliases (`sf force apex execute`, `sf auth web login`, `sf auth list`, `sf force project create`, etc.). The aliases are documented in each plugin's `ALIASES` block. They're useful when reading older sfdx scripts but `sf <topic> <verb>` is the canonical form for new code.
+
+---
+
+## Topic: `org` — Org management & auth
+
+### Common short flags (`org` + `auth` plugins)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `org` commands that hit an org |
+| `--target-dev-hub` | `-v` | `org create scratch/snapshot`, `org list/get/delete snapshot/shape` |
+| `--alias` | `-a` | `org login *`, `org create scratch/sandbox/user` |
+| `--set-default` | `-s` | `org login *`, `org create scratch` (`-d` for `create scratch`) |
+| `--set-default-dev-hub` | `-d` | `org login *` |
+| `--instance-url` | `-r` | `org login web/jwt/sfdx-url/access-token` |
+| `--browser` | `-b` | `org login web`, `org open` |
+| `--client-id` | `-i` | `org login web/jwt`, `org create scratch` |
+| `--client-app` | `-c` | `org login web`, `org logout`, `org display` |
+| `--no-prompt` | `-p` | `org delete *`, `org logout`, `org list` |
+| `--all` | `-a` | `org logout`, `org list` |
+| `--name` | `-n` | `org create sandbox/snapshot`, `org resume sandbox`, `org assign permset/permsetlicense` |
+| `--license-type` | `-l` | `org create sandbox` |
+| `--definition-file` | `-f` | `org create scratch/sandbox/user`, `org refresh sandbox` |
+| `--wait` | `-w` | `org create/refresh/resume scratch/sandbox` |
+| `--poll-interval` | `-i` | `org create/refresh sandbox` |
+| `--duration-days` | `-y` | `org create scratch` |
+| `--track-source` | `-t` | `org create scratch` |
+| `--no-namespace` | `-m` | `org create scratch` |
+| `--no-ancestors` | `-c` | `org create scratch` |
+| `--edition` | `-e` | `org create scratch` |
+| `--snapshot` | `-s` | `org create scratch`, `org delete snapshot`, `org get snapshot` |
+| `--source-org` | `-o` | `org create snapshot` |
+| `--description` | `-d` | `org create snapshot` |
+| `--use-most-recent` | `-l` (sandbox) / `-r` (scratch) | `org resume sandbox/scratch` |
+| `--job-id` | `-i` | `org resume sandbox/scratch` |
+| `--complexity` | `-c` | `org generate password` |
+| `--length` | `-l` | `org generate password` |
+| `--on-behalf-of` | `-b` | `org assign permset/permsetlicense`, `org generate password` |
+| `--set-alias` | `-a` | `org create user` |
+| `--set-unique-username` | `-s` | `org create user` |
+| `--first-name` | | `org create agent-user` |
+| `--last-name` | | `org create agent-user` |
+| `--base-username` | | `org create agent-user` |
+| `--source-file` | `-f` | `org open` |
+| `--path` | `-p` | `org open` |
+| `--url-only` | `-r` | `org open` |
+| `--api-name` | `-n` | `org open agent` |
+| `--metadata-type` | `-m` | `org list metadata` |
+| `--output-file` | `-f` | `org list metadata`, `org list metadata-types` |
+| `--sobject` | `-s` | `org list sobject record-counts` |
+
+> **Aliases:** `sf auth list` ≡ `sf org list auth`, `sf auth web login` ≡ `sf org login web`, `sf auth jwt grant` ≡ `sf org login jwt`, `sf auth sfdxurl store` ≡ `sf org login sfdx-url`, `sf auth accesstoken store` ≡ `sf org login access-token`, `sf auth logout` ≡ `sf org logout`. Sandbox/scratch lifecycle commands also accept the `sf env *` namespace.
+
+### Login / Logout
+```bash
+sf org login web -a {{ORG_ALIAS}}                                 # Browser-based OAuth; default flow
+sf org login web -a {{ORG_ALIAS}} -r https://test.salesforce.com  # Sandbox login (-r ≡ --instance-url)
+sf org login web -a {{ORG_ALIAS}} -s -d                           # Set as default and default-dev-hub
+sf org login jwt --client-id <id> --jwt-key-file server.key --username <u> -a {{ORG_ALIAS}}
+sf org login jwt -i <client-id> -f server.key -o <username> -a {{ORG_ALIAS}}           # Short form
+sf org login sfdx-url -f auth-url.txt -a {{ORG_ALIAS}}            # Auth via stored SFDX URL file
+sf org login sfdx-url -u "$AUTH_URL" -a {{ORG_ALIAS}}             # Pipe URL via stdin
+sf org login access-token -r https://mycompany.my.salesforce.com -a {{ORG_ALIAS}}      # Token via $SF_ACCESS_TOKEN
+# Link an external client app to an authenticated user (Agentforce client-app workflow)
+sf org login web -c MyClientApp --username me@example.com --scopes "sfap_api chatbot_api"
+sf org logout -o {{ORG_ALIAS}}                                    # Single org
+sf org logout -a --no-prompt                                # All orgs (-a ≡ --all)
+sf org logout -c MyClientApp -o me@example.com              # Logout of a specific client-app link only
+```
+
+### Inspect / List
+```bash
+sf org list --all                                     # All authed orgs (expired included)
+sf org list auth                                      # Auth file paths
+sf org display -o {{ORG_ALIAS}}                             # Instance URL, user, API version, etc.
+sf org display user -o {{ORG_ALIAS}}                        # Current user info
+sf org list limits -o {{ORG_ALIAS}}                         # Governor-limit consumption snapshot
+sf org list metadata -m ApexClass -o {{ORG_ALIAS}}          # List metadata of a type
+sf org list metadata-types -o {{ORG_ALIAS}}                 # All supported metadata types
+sf org list sobject record-counts -s Account,Case -o {{ORG_ALIAS}}
+sf org list users -o {{ORG_ALIAS}}                          # Local auth users for the org
+```
+
+### Open
+```bash
+sf org open -o {{ORG_ALIAS}}                                # Open in browser
+sf org open -p /lightning/setup/ApexClasses/home -o {{ORG_ALIAS}}
+sf org open --private -o {{ORG_ALIAS}}                      # Incognito window
+sf org open -r -p /lightning -o {{ORG_ALIAS}}               # URL-only (don't launch)
+sf org open -b chrome -o {{ORG_ALIAS}}                      # Force a specific browser
+sf org open -f force-app/main/default/flows/Hello.flow-meta.xml -o {{ORG_ALIAS}}   # Open in Flow Builder
+sf org open -f force-app/main/default/flexipages/Hello.flexipage-meta.xml -o {{ORG_ALIAS}}   # Lightning App Builder
+sf org open agent -n Resort_Manager -o {{ORG_ALIAS}}        # -n ≡ --api-name
+sf org open agent --authoring-bundle MyAgent --version 1 -o {{ORG_ALIAS}}          # Open in Agentforce Builder
+sf org open authoring-bundle -o {{ORG_ALIAS}}               # Agentforce Studio agent list view
+```
+
+### Sandbox
+```bash
+sf org create sandbox -n MyDevSbx -l Developer -o {{ORG_ALIAS}} -a MyDevSbx -w 60          # Long: --name --license-type --wait
+sf org create sandbox --name MyDevSbx --license-type DEVELOPER -o {{ORG_ALIAS}} -a MyDevSbx --wait 60
+sf org create sandbox --source-sandbox-name ExistingSbx --name CloneSbx -o {{ORG_ALIAS}} -a CloneSbx -w 30   # Clone
+sf org create sandbox --source-id 0GQ... --name CloneSbx -o {{ORG_ALIAS}} --async         # Clone by sandbox Id
+sf org resume sandbox -n MyDevSbx -o {{ORG_ALIAS}}                                          # By name
+sf org resume sandbox -i <job-id> -w 30                                                    # By job ID (-i ≡ --job-id)
+sf org resume sandbox -l -o {{ORG_ALIAS}}                                                   # -l ≡ --use-most-recent
+sf org refresh sandbox -n MyDevSbx -o {{ORG_ALIAS}} --no-prompt
+sf org refresh sandbox -n MyDevSbx -f sbx-def.json -o {{ORG_ALIAS}}                         # Override config on refresh
+sf org refresh sandbox -n MyDevSbx --source-sandbox-name OtherSbx -o {{ORG_ALIAS}}          # Re-source from another sbx
+sf org refresh sandbox --no-auto-activate -n MyDevSbx -o {{ORG_ALIAS}}                      # Manual activation
+sf org delete sandbox -o MyDevSbx -p                                                       # -p ≡ --no-prompt
+```
+
+### Scratch Org
+```bash
+sf org create scratch -f config/project-scratch-def.json -a MyScratch -v DevHub -y 30      # Short: -f -a -v -y
+sf org create scratch --definition-file config/project-scratch-def.json -a MyScratch -v DevHub --duration-days 30
+sf org create scratch -e developer -a MyScratch -v DevHub                                  # Edition flag, no def file
+sf org create scratch -e developer -a MyScratch -v DevHub -d                               # -d ≡ --set-default
+sf org create scratch --release preview -e enterprise -a MyScratch -v DevHub               # Preview release
+sf org create scratch -s NightlyBranch -a MyScratch -v DevHub -w 10                        # From snapshot
+sf org create scratch --source-org 00D... -a MyScratch -v DevHub                           # From shape
+sf org create scratch --no-track-source -e developer -a MyScratch -v DevHub                # Disable source tracking
+sf org create scratch --no-namespace --no-ancestors -e developer -a MyScratch -v DevHub    # -m / -c short forms
+sf org resume scratch -i <job-id> -v DevHub                                                 # By job ID
+sf org resume scratch -r -w 10                                                              # -r ≡ --use-most-recent
+sf org delete scratch -o MyScratch -p
+sf org generate password -o MyScratch                                                       # Random password
+sf org generate password -l 25 -c 5 -o MyScratch                                            # 25 chars, max complexity
+sf org generate password -b user1@my.org -b user2@my.org -o MyScratch                       # For specific users
+sf org create user -a newUser -f user-def.json -o MyScratch                                 # Short flags
+sf org create user --set-alias newUser --definition-file user-def.json -o MyScratch
+sf org create user -a uniqueUser -f user-def.json -s -o MyScratch                           # -s force unique username
+sf org create agent-user -o MyScratch                                                       # Default agent-runtime user
+sf org create agent-user --base-username service-agent@corp.com -o MyScratch                # Custom base username
+sf org create agent-user --first-name Service --last-name Agent -o MyScratch
+```
+
+### Shape & Snapshot (scratch)
+```bash
+sf org create shape -o {{ORG_ALIAS}}
+sf org list shape -v DevHub
+sf org delete shape -o {{ORG_ALIAS}} -p                                                      # -p ≡ --no-prompt
+sf org create snapshot -o <scratch> -n my-snap -v DevHub                                    # -o ≡ --source-org, -n ≡ --name
+sf org create snapshot --source-org <scratch> --name my-snap --description 'Pkg v1.0' -v DevHub
+sf org create snapshot -o <scratch> -n my-snap -d 'Contains pkg v1.0' -v DevHub             # -d ≡ --description
+sf org get snapshot -s my-snap -v DevHub                                                    # -s ≡ --snapshot
+sf org list snapshot -v DevHub
+sf org delete snapshot -s my-snap -v DevHub -p
+```
+
+### Source Tracking
+```bash
+sf org enable tracking -o {{ORG_ALIAS}}
+sf org disable tracking -o {{ORG_ALIAS}}
+```
+
+### Permissions
+```bash
+sf org assign permset -n MyPermSet -o {{ORG_ALIAS}}                                  # Current user
+sf org assign permset -n MyPermSet -n OtherPermSet -o {{ORG_ALIAS}}                  # Multiple permsets
+sf org assign permset -n MyPermSet -b user@x.com -o {{ORG_ALIAS}}                    # -b ≡ --on-behalf-of
+sf org assign permset -n MyPermSet --on-behalf-of user1@x.com -b user2@x.com -o {{ORG_ALIAS}}
+sf org assign permsetlicense -n MyLicense -o {{ORG_ALIAS}}
+sf org assign permsetlicense -n MyLicense -b user@x.com -o {{ORG_ALIAS}}
+```
+
+---
+
+## Topic: `project` — Deploy / Retrieve / Convert
+
+### Common short flags (`deploy-retrieve` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All deploy/retrieve commands |
+| `--api-version` | `-a` | `project deploy start/validate`, `project retrieve start` |
+| `--manifest` | `-x` | `project deploy start/validate`, `project retrieve start`, `project generate manifest` |
+| `--metadata` | `-m` | `project deploy start/validate`, `project retrieve start`, `project delete source`, `project generate manifest` |
+| `--source-dir` | `-d` | `project deploy start/validate`, `project retrieve start`, `project delete source`, `project generate manifest` |
+| `--ignore-conflicts` | `-c` | `project deploy start/validate`, `project retrieve start`, `project delete source` |
+| `--ignore-warnings` | `-g` | `project deploy start/validate` |
+| `--ignore-errors` | `-r` | `project deploy start/validate` |
+| `--test-level` | `-l` | `project deploy start/validate`, `project deploy pipeline *` |
+| `--tests` | `-t` | `project deploy start/validate`, `project deploy pipeline *` |
+| `--wait` | `-w` | All deploy/retrieve commands that poll |
+| `--job-id` | `-i` | `project deploy cancel/quick/report/resume`, `project retrieve resume` |
+| `--use-most-recent` | `-r` | `project deploy report/resume` |
+| `--source-dir` (delete) | `-p` | `project delete source` (where it's `-p`, not `-d`) |
+| `--name` | `-n` | `project generate manifest`, `project deploy pipeline start` |
+| `--output-dir` | `-d` | `project generate manifest` |
+
+### Deploy (source → org)
+```bash
+# Single-class syntax validation (fastest feedback)
+sf project deploy start --metadata ApexClass:MyClass -o {{ORG_ALIAS}} --ignore-conflicts
+sf project deploy start -m ApexClass:MyClass -o {{ORG_ALIAS}} -c                         # Short form
+
+# Manifest-driven deploy with targeted tests (PREFERRED for Apex work)
+sf project deploy start \
+  --manifest './manifest/my-feature.xml' \
+  -o {{ORG_ALIAS}} \
+  --test-level RunSpecifiedTests \
+  --tests MyClassTest \
+  --ignore-conflicts \
+  --wait 10
+
+# Same deploy, fully short-form
+sf project deploy start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} -l RunSpecifiedTests -t MyClassTest -c -w 10
+
+# Deploy a source dir
+sf project deploy start -d force-app/main/default/classes -o {{ORG_ALIAS}}
+sf project deploy start --source-dir force-app/main/default/classes -o {{ORG_ALIAS}}
+
+# Multiple metadata types / patterns (wildcards require quotes)
+sf project deploy start -m 'ApexClass:MyApex*' --ignore-warnings -o {{ORG_ALIAS}}
+sf project deploy start -m CustomObject -m ApexClass -o {{ORG_ALIAS}}
+
+# Concise / verbose / dry-run
+sf project deploy start -d force-app -o {{ORG_ALIAS}} --concise                          # Trim output
+sf project deploy start -d force-app -o {{ORG_ALIAS}} --verbose                          # Component-by-component
+sf project deploy start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} --dry-run -l RunSpecifiedTests -t MyClassTest
+
+# Coverage formatters + JUnit (CI friendly)
+sf project deploy start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} \
+  -l RunSpecifiedTests -t MyClassTest \
+  --coverage-formatters cobertura --coverage-formatters html-spa \
+  --junit --results-dir ./test-results
+
+# Destructive changes (delete components on deploy)
+sf project deploy start -x ./manifest/my-feature.xml \
+  --pre-destructive-changes ./manifest/destructiveChangesPre.xml \
+  --post-destructive-changes ./manifest/destructiveChangesPost.xml \
+  --purge-on-delete -o {{ORG_ALIAS}}
+
+# Metadata-API zip / dir deploy (instead of source format)
+sf project deploy start --metadata-dir mdapi_output --single-package -o {{ORG_ALIAS}}
+
+# Validate-only (no commit) — produces a deploy ID for later quick-deploy
+sf project deploy validate --manifest './manifest/my-feature.xml' -o {{ORG_ALIAS}} --test-level RunSpecifiedTests --tests MyClassTest
+sf project deploy validate -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} -l RunSpecifiedTests -t MyClassTest -w 10  # Short form
+
+# Promote a validated deploy
+sf project deploy quick --job-id <deploy-id> -o {{ORG_ALIAS}}
+sf project deploy quick -i <deploy-id> -o {{ORG_ALIAS}} -w 10
+
+# Preview / cancel / resume / report
+sf project deploy preview -o {{ORG_ALIAS}}
+sf project deploy preview -x ./manifest/my-feature.xml -o {{ORG_ALIAS}}                 # Preview a specific manifest
+sf project deploy cancel -i <id> -o {{ORG_ALIAS}}                                        # -i ≡ --job-id
+sf project deploy cancel --use-most-recent -o {{ORG_ALIAS}}                              # Most recent job
+sf project deploy report -i <id> -o {{ORG_ALIAS}}
+sf project deploy report -r -o {{ORG_ALIAS}}                                             # -r ≡ --use-most-recent
+sf project deploy resume -i <id> -o {{ORG_ALIAS}} -w 10
+sf project deploy resume -r -o {{ORG_ALIAS}}
+```
+
+**Test levels:** `NoTestRun`, `RunSpecifiedTests`, `RunLocalTests`, `RunAllTestsInOrg`, `RunRelevantTests`.
+
+> `RunRelevantTests` (added in API v62.0+) runs only the tests Salesforce determines are relevant to the changed components. Useful for incremental deploys; not all orgs/edition combos support it.
+
+### Retrieve (org → source)
+```bash
+sf project retrieve start --manifest './manifest/my-feature.xml' -o {{ORG_ALIAS}}
+sf project retrieve start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}}                  # Short form
+sf project retrieve start -m "ApexClass:MyClass" -o {{ORG_ALIAS}}
+sf project retrieve start -m ApexClass -m CustomObject -o {{ORG_ALIAS}}                  # Multiple types
+sf project retrieve start -d force-app/main/default/classes -o {{ORG_ALIAS}}
+sf project retrieve start -d force-app -o {{ORG_ALIAS}} --ignore-conflicts -w 30
+sf project retrieve start -x ./manifest/my-feature.xml --target-metadata-dir ./mdapi_out -o {{ORG_ALIAS}}     # Retrieve as MDAPI
+sf project retrieve start -x ./manifest/my-feature.xml --zip-file-name retrieved.zip --unzip -o {{ORG_ALIAS}} # Zip output
+sf project retrieve start --package-name MyPackage -o {{ORG_ALIAS}}                      # Retrieve installed managed pkg
+sf project retrieve preview -o {{ORG_ALIAS}}
+sf project retrieve resume -i <job-id> -o {{ORG_ALIAS}}                                  # Resume an async retrieve
+sf project retrieve resume -r -o {{ORG_ALIAS}}                                           # Most recent retrieve
+```
+
+### Metadata API names cheat sheet (for `-m` / `-x`)
+
+The `-m` / `--metadata` flag uses the **Metadata API type name**, which is NOT always what the component is called in the UI. Get this wrong and the deploy/retrieve silently misses your file. Use `sf org list metadata-types -o {{ORG_ALIAS}}` for the authoritative list; the table below covers the high-traffic {{ORG_NAME}} components.
+
+| UI/file term | Metadata API name | Address form (`-m Type:Name`) | Notes |
+|---|---|---|---|
+| Apex class | `ApexClass` | `ApexClass:MyClass` | The `.cls`; the `-meta.xml` rides along automatically. |
+| Apex trigger | `ApexTrigger` | `ApexTrigger:MyTrigger` | |
+| Apex test suite | `ApexTestSuite` | `ApexTestSuite:MySuite` | |
+| LWC (Lightning Web Component) | `LightningComponentBundle` | `LightningComponentBundle:myCmp` | NOT `LWC` / `LightningWebComponent`. Retrieves the whole bundle (`.js`, `.html`, `.css`, `.xml`). |
+| Aura component | `AuraDefinitionBundle` | `AuraDefinitionBundle:myAura` | NOT `Aura` / `LightningComponent`. Whole bundle. |
+| OmniScript | `OmniScript` | `OmniScript:OrderEntry_OnlineOrder_English_3` | Filename convention is `<Type>_<SubType>_<Lang>_<Version>`. Member name = the part BEFORE `.os-meta.xml`. |
+| Integration Procedure | `OmniIntegrationProcedure` | `OmniIntegrationProcedure:OrderProcessing_Procedure_3` | `_Procedure_<Version>` suffix. Member name = part before `.oip-meta.xml`. |
+| DataRaptor | `OmniDataTransform` | `OmniDataTransform:DR_OrderProcessing_LookupAccount` | Covers Extract / Load / Transform / Turbo. |
+| FlexCard | `OmniUiCard` (newer) or `FlexCard` (legacy) | `OmniUiCard:OrderSummaryCard_English_1` | Check `force-app/main/default/omniUiCard/` vs `flexCards/` for which your org uses. |
+| Vlocity Interaction Configuration | `OmniInteractionConfig` | `OmniInteractionConfig:OrderEntryConfig` | Lives under `omniInteractionConfigurations/`. |
+| FlexiPage (Lightning record/app/home page) | `FlexiPage` | `FlexiPage:Account_Record_Page` | NOT `LightningPage`. Name matches the file without `.flexipage-meta.xml`. |
+| Page layout | `Layout` | `Layout:Account-Account Layout` | **Address form uses a hyphen between object and layout name**, NOT a dot. |
+| Record type | `RecordType` | `RecordType:Account.B2B_Customer` | Object.DeveloperName. |
+| Custom field | `CustomField` | `CustomField:Account.Customer_Tier__c` | Object.FieldApiName, including `__c` suffix on custom fields. |
+| Custom object | `CustomObject` | `CustomObject:Order__c` (custom) or `CustomObject:Account` (standard) | Standard objects retrieve their full describe (fields + RT + layouts). |
+| Validation rule | `ValidationRule` | `ValidationRule:Account.Require_Customer_Tier` | Object.RuleName. |
+| Workflow rule | `WorkflowRule` | `WorkflowRule:Account.NotifyOwnerOnTierChange` | (workflows are deprecated; you usually want `Flow`). |
+| Flow | `Flow` | `Flow:Notify_Owner_On_Tier_Change` | A specific version: `Flow:Notify_Owner_On_Tier_Change-3`. |
+| Flow Definition | `FlowDefinition` | `FlowDefinition:Notify_Owner_On_Tier_Change` | The activation pointer; needed when promoting a specific Flow version. |
+| Web link (Case button etc.) | `WebLink` | `WebLink:Case.Escalate_To_Tier_2` | Object.ButtonName. The most-missed addressing form. |
+| Quick Action | `QuickAction` | `QuickAction:Account.Log_A_Call` | For object-specific QAs. Global: `QuickAction:My_Global_Action`. |
+| Permission set | `PermissionSet` | `PermissionSet:Order_Manager` | |
+| Permission set group | `PermissionSetGroup` | `PermissionSetGroup:Order_Team_All` | |
+| Profile | `Profile` | `Profile:Standard User` | Profile name has spaces — quote it: `'Profile:System Administrator'`. |
+| Custom label | `CustomLabel` | `CustomLabel:Welcome_Banner_Text` | Each label is its own member — there's no "all labels" bundle. |
+| Custom metadata type | `CustomMetadata` | `CustomMetadata:Pricing_Tier_Config.Bronze` | Each RECORD is a member. To grab the type definition + all records, use both `CustomObject:Pricing_Tier_Config__mdt` AND `CustomMetadata:Pricing_Tier_Config.*`. |
+| Static resource | `StaticResource` | `StaticResource:CompanyLogo` | |
+| Email template | `EmailTemplate` | `EmailTemplate:unfiled$public/Welcome_Email` | Folder path BEFORE the slash; template DeveloperName after. |
+| Report | `Report` | `Report:Sales_Reports/Weekly_Pipeline` | Same folder/name pattern as email templates. |
+| Dashboard | `Dashboard` | `Dashboard:Sales_Dashboards/Pipeline_Overview` | |
+| Lightning App | `CustomApplication` | `CustomApplication:OrderManagement` | NOT `LightningApp`. |
+| Connected App | `ConnectedApp` | `ConnectedApp:OrderApi_OAuth` | |
+| Named credential | `NamedCredential` | `NamedCredential:ExternalPricingApi` | |
+| Custom tab | `CustomTab` | `CustomTab:Order__c` (custom objects auto-tab on api name) / `CustomTab:Orders_Console` | |
+| Translation | `Translations` | `Translations:en_US` | Per-locale member. |
+| Custom translation | `CustomObjectTranslation` | `CustomObjectTranslation:Account-en_US` | Object-locale form. |
+
+> **Naming in the table is illustrative.** The `OrderProcessing_*` / `Order_Manager` / `Customer_Tier__c` style names are just placeholders that match the file-name convention each metadata type follows in a typical Salesforce org. Substitute your org's actual component names.
+
+> **Wildcard form for `-m`.** `sf project retrieve start -m 'OmniScript:OrderEntry_*' -o {{ORG_ALIAS}}` retrieves every OmniScript whose name starts with `OrderEntry_`. Quotes are required so the shell doesn't expand the asterisk.
+
+> **Bundle vs. file gotcha.** `-m LightningComponentBundle:myCmp` grabs the WHOLE bundle. There is no way to retrieve a single `.js` inside an LWC via the metadata API — same applies to Aura and OmniScript.
+
+> **`-m` vs. `-d` choice.** Use `-m Type:Name` when you know the metadata identity (preferred — survives renames of local folder structure). Use `-d force-app/main/default/<dir>` only when you want everything under a directory.
+
+Common multi-component retrieve patterns (substitute your real component names):
+```bash
+# OmniStudio component + its dependencies (the cache-bust dance entry point)
+sf project retrieve start \
+  -m OmniIntegrationProcedure:OrderProcessing_Procedure_3 \
+  -m OmniDataTransform:DR_OrderProcessing_LookupAccount \
+  -m ApexClass:OrderProcessingPostProcess \
+  -o {{ORG_ALIAS}}
+
+# A whole Case-button feature (button + OmniScript + IPs + DRs it calls)
+sf project retrieve start \
+  -m WebLink:Case.Escalate_To_Tier_2 \
+  -m OmniScript:CaseEscalation_Tier2_English_4 \
+  -m OmniIntegrationProcedure:CaseEscalation_Procedure_4 \
+  -m OmniIntegrationProcedure:CaseEscalation_LogicContainer_Procedure_2 \
+  -o {{ORG_ALIAS}}
+
+# Permission set + the custom field(s) it grants access to
+sf project retrieve start \
+  -m PermissionSet:Order_Manager \
+  -m CustomField:Account.Sales_Region__c \
+  -m CustomField:Account.Customer_Tier__c \
+  -o {{ORG_ALIAS}}
+
+# Layout + record type + the fields it shows
+sf project retrieve start \
+  -m Layout:Account-B2B_Customer_Layout \
+  -m RecordType:Account.B2B_Customer \
+  -m CustomField:Account.Customer_Tier__c \
+  -o {{ORG_ALIAS}}
+```
+
+Discover unfamiliar component names by querying the org:
+```bash
+sf org list metadata -m LightningComponentBundle -o {{ORG_ALIAS}} | head -20            # All LWC names
+sf org list metadata -m OmniScript -o {{ORG_ALIAS}} | grep <YourPrefix_>                # OmniScripts matching your project prefix
+sf org list metadata-types -o {{ORG_ALIAS}} | grep -i omni                              # Find the right type name (case-insensitive)
+```
+
+### Convert (source ↔ MDAPI)
+```bash
+sf project convert source -r force-app -d mdapi_output       # source → mdapi
+sf project convert mdapi -r mdapi_input -d force-app         # mdapi → source
+sf project convert source-behavior --behavior decomposePermissionSetBeta2
+```
+
+### Manifests & Tracking
+```bash
+sf project generate manifest -d force-app/main/default/classes -n classes              # -d ≡ --source-dir, -n ≡ --name
+sf project generate manifest --source-dir force-app/main/default/classes --name classes
+sf project generate manifest -m ApexClass:MyClass ApexTrigger:MyTrigger                 # -m ≡ --metadata
+sf project generate manifest -m ApexClass -t pre --output-dir ./manifest                # Type: pre|post|package (destructive variants)
+sf project list ignored                                                                 # Files matched by .forceignore
+sf project list ignored --source-dir force-app                                          # Restrict scope
+sf project reset tracking -o {{ORG_ALIAS}} -p                                                 # -p ≡ --no-prompt
+sf project reset tracking -o {{ORG_ALIAS}} --revision <n>                                     # Reset to a specific SourceMember rev
+sf project delete tracking -o {{ORG_ALIAS}}
+sf project delete source -m ApexClass:Obsolete -o {{ORG_ALIAS}}                               # Destructive — org-side delete
+sf project delete source -d force-app/main/default/classes/Obsolete.cls -o {{ORG_ALIAS}}      # Delete by path (-d, NOT -p)
+sf project delete source -m ApexClass:Obsolete --no-prompt --track-source -o {{ORG_ALIAS}}    # Skip prompt + track
+```
+
+### Pipeline (DevOps Center)
+```bash
+sf project deploy pipeline start --branch-name integration --devops-center-project-name MyProj --bundle-version-name v1 -o {{ORG_ALIAS}}
+sf project deploy pipeline validate ...
+sf project deploy pipeline quick --job-id <id> -o {{ORG_ALIAS}}
+sf project deploy pipeline report --job-id <id> -o {{ORG_ALIAS}}
+sf project deploy pipeline resume --job-id <id> -o {{ORG_ALIAS}}
+```
+
+---
+
+## Topic: `apex` — Apex execution, logs, tests
+
+### Common short flags (`apex` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All apex commands |
+| `--file` | `-f` | `apex run` |
+| `--class-names` | `-n` | `apex run test` |
+| `--suite-names` | `-s` | `apex run test` |
+| `--tests` | `-t` | `apex run test` |
+| `--test-level` | `-l` | `apex run test` |
+| `--code-coverage` | `-c` | `apex run test`, `apex get test` |
+| `--detailed-coverage` | `-v` | `apex run test` |
+| `--result-format` | `-r` | `apex run test`, `apex get test` |
+| `--output-dir` | `-d` | `apex run test`, `apex get test`, `apex get log` |
+| `--wait` | `-w` | `apex run test` |
+| `--poll-interval` | `-i` | `apex run test` |
+| `--synchronous` | `-y` | `apex run test` |
+| `--test-run-id` | `-i` | `apex get test` |
+| `--log-id` | `-i` | `apex get log` |
+| `--number` | `-n` | `apex get log` |
+| `--color` | `-c` | `apex tail log` |
+| `--debug-level` | `-d` | `apex tail log` |
+| `--skip-trace-flag` | `-s` | `apex tail log` |
+
+```bash
+# Run anonymous Apex (inline or from file)
+echo "System.debug('hello');" | sf apex run -o {{ORG_ALIAS}}
+sf apex run -f scripts/anonymous.apex -o {{ORG_ALIAS}}
+sf apex run --file scripts/anonymous.apex -o {{ORG_ALIAS}}
+
+# Run tests
+sf apex run test --class-names MyClassTest -o {{ORG_ALIAS}} --synchronous --code-coverage --result-format human --wait 10
+sf apex run test -n MyClassTest -o {{ORG_ALIAS}} -y -c -r human -w 10                   # Same, short form
+sf apex run test --test-level RunLocalTests -o {{ORG_ALIAS}} --code-coverage --wait 20
+sf apex run test -l RunLocalTests -o {{ORG_ALIAS}} -c -w 20
+sf apex run test -n MyClassTest -n OtherClassTest -c -v -r human -o {{ORG_ALIAS}}        # Detailed coverage per test
+sf apex run test --suite-names MySuite -o {{ORG_ALIAS}}
+sf apex run test -s MySuite -s OtherSuite -c -r junit -o {{ORG_ALIAS}}
+sf apex run test -t MyClassTest.testMethodA -t MyClassTest.testMethodB -r tap -o {{ORG_ALIAS}}
+sf apex run test -n MyClassTest -y -c -d ./test-results -r junit -o {{ORG_ALIAS}}        # Save results
+sf apex run test --concise -n MyClassTest -o {{ORG_ALIAS}}                               # Failed-only output
+sf apex get test --test-run-id <id> -o {{ORG_ALIAS}} --code-coverage --result-format human
+sf apex get test -i <id> -o {{ORG_ALIAS}} -c -r json -d ./test-results
+
+# Logs — MANDATORY after any Apex run (see test-deploy-ruleset.mdc)
+sf apex list log -o {{ORG_ALIAS}}                           # Recent log IDs
+sf apex get log --log-id recent -o {{ORG_ALIAS}}            # Most recent
+sf apex get log -i recent -o {{ORG_ALIAS}}                  # Same, short form (-i ≡ --log-id)
+sf apex get log --log-id recent --number 5 -o {{ORG_ALIAS}} # Last 5
+sf apex get log -i recent -n 5 -o {{ORG_ALIAS}}             # Same, short form (-n ≡ --number)
+sf apex get log -i 07L... -o {{ORG_ALIAS}}                  # Specific
+sf apex get log -n 5 -d ./logs -o {{ORG_ALIAS}}             # Save 5 most recent to ./logs
+sf apex tail log -o {{ORG_ALIAS}} --color                   # Live streaming
+sf apex tail log -o {{ORG_ALIAS}} -c                        # Same, short form
+sf apex tail log -o {{ORG_ALIAS}} -c -d MyDebugLevel        # Specific debug level
+sf apex tail log -o {{ORG_ALIAS}} -c -s                     # Skip trace flag setup
+```
+
+**Result formats:** `human`, `tap`, `junit`, `json`.
+
+**Apex log grep pattern:**
+```bash
+sf apex get log --log-id recent -o {{ORG_ALIAS}} | grep -E "(EXCEPTION|ERROR|FATAL|DUPLICATE_VALUE|VALIDATION_RULE)"
+sf apex get log -i recent -o {{ORG_ALIAS}} | grep -E "(EXCEPTION|ERROR|FATAL|DUPLICATE_VALUE|VALIDATION_RULE)"
+```
+
+---
+
+## Topic: `data` — SOQL / SOSL / bulk CRUD
+
+### Common short flags (`data` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `data` commands |
+| `--query` | `-q` | `data query`, `data search`, `data export bulk`, `data export tree` |
+| `--file` | `-f` | `data query`, `data search`, `data create file`, `data import bulk`, `data update bulk`, `data upsert bulk`, `data delete bulk` |
+| `--result-format` | `-r` | `data query`, `data search`, `data export bulk` |
+| `--use-tooling-api` | `-t` | `data query`, `data create/get/update/delete record` |
+| `--sobject` | `-s` | `data import/update/upsert/delete bulk`, `data create/get/update/delete record` |
+| `--values` | `-v` | `data create record`, `data update record` |
+| `--record-id` | `-i` | `data get/update/delete record` |
+| `--where` | `-w` | `data get/update/delete record` (NOT wait!) |
+| `--external-id` | `-i` | `data upsert bulk` |
+| `--wait` | `-w` | `data import/update/upsert/delete/export bulk` |
+| `--job-id` | `-i` | `data * resume`, `data bulk results`, `data resume` |
+| `--batch-id` | `-b` | `data resume` |
+| `--use-most-recent` | | `data * resume` (no short form) |
+| `--output-file` | | `data query`, `data export bulk` (no short form) |
+| `--query-file` | | `data export bulk` (no short form) |
+| `--column-delimiter` | | All `data * bulk` ingest commands |
+| `--line-ending` | | All `data * bulk` ingest commands |
+| `--all-rows` | | `data query`, `data export bulk` (include soft-deleted) |
+| `--hard-delete` | | `data delete bulk` (Recycle-Bin bypass) |
+| `--files` | `-f` | `data import tree` |
+| `--plan` | `-p` | `data import/export tree` |
+| `--prefix` | `-x` | `data export tree` |
+| `--output-dir` | `-d` | `data export tree` |
+| `--title` | `-t` | `data create file` |
+| `--parent-id` | `-i` | `data create file` |
+
+### Query
+```bash
+sf data query -q "SELECT Id, Name FROM Account LIMIT 5" -o {{ORG_ALIAS}}
+sf data query --query "SELECT Id, Name FROM Account LIMIT 5" -o {{ORG_ALIAS}}
+sf data query -q "SELECT Id FROM Account" -o {{ORG_ALIAS}} --result-format csv > accounts.csv
+sf data query -q "SELECT Id FROM Account" -o {{ORG_ALIAS}} -r csv --output-file accts.csv  # Save directly
+sf data query -f query.txt -o {{ORG_ALIAS}} -r csv --output-file accts.csv                 # Read SOQL from file
+sf data query -q "SELECT Id FROM Account" --all-rows -o {{ORG_ALIAS}}                      # Include soft-deleted
+sf data query -q "SELECT Id FROM ApexClass" -o {{ORG_ALIAS}} -t                            # Tooling API
+sf data query -q "SELECT Id FROM Account" -o {{ORG_ALIAS}} --use-tooling-api
+sf data search -q "FIND {ACME} IN ALL FIELDS RETURNING Account(Id, Name)" -o {{ORG_ALIAS}}
+sf data search -f search.sosl -r json -o {{ORG_ALIAS}}                                     # SOSL from file
+```
+
+### Single-record CRUD
+```bash
+sf data create record -s Account -v "Name='Acme' Industry=Tech" -o {{ORG_ALIAS}}
+sf data create record --sobject Account --values "Name='Acme' Industry=Tech" -o {{ORG_ALIAS}}
+sf data create record -s TraceFlag -v "DebugLevelId=... TracedEntityId=..." -t -o {{ORG_ALIAS}}   # Tooling API
+sf data get record -s Account -i 001... -o {{ORG_ALIAS}}
+sf data get record -s Account -w "Name='Universal Containers'" -o {{ORG_ALIAS}}                   # By field-value (NOTE: -w here means --where)
+sf data update record -s Account -i 001... -v "Name='New'" -o {{ORG_ALIAS}}
+sf data delete record -s Account -i 001... -o {{ORG_ALIAS}}
+sf data delete record -s Account -w "Name=Acme" -o {{ORG_ALIAS}}                                  # Delete by where
+```
+
+### Bulk 2.0 (CSV-based)
+```bash
+sf data import bulk --sobject Account --file accts.csv -o {{ORG_ALIAS}} --wait 10
+sf data import bulk -s Account -f accts.csv -o {{ORG_ALIAS}} -w 10                                # Short form
+sf data import bulk -s Account -f accts.csv --column-delimiter PIPE --line-ending LF -o {{ORG_ALIAS}}
+sf data update bulk --sobject Account --file accts.csv -o {{ORG_ALIAS}} --wait 10
+sf data update bulk -s Account -f accts.csv -o {{ORG_ALIAS}} -w 10
+sf data upsert bulk --sobject Account --file accts.csv --external-id Ext_Id__c -o {{ORG_ALIAS}} --wait 10
+sf data upsert bulk -s Account -f accts.csv -i Ext_Id__c -o {{ORG_ALIAS}} -w 10                   # -i ≡ --external-id
+sf data delete bulk --sobject Account --file ids.csv -o {{ORG_ALIAS}} --wait 10
+sf data delete bulk -s Account -f ids.csv -o {{ORG_ALIAS}} -w 10
+sf data delete bulk -s Account -f ids.csv --hard-delete -o {{ORG_ALIAS}}                          # Skip Recycle Bin
+sf data export bulk --query "SELECT Id,Name FROM Account" --output-file accts.csv --result-format csv -o {{ORG_ALIAS}} --wait 10
+sf data export bulk -q "SELECT Id,Name FROM Account" --output-file accts.csv -r csv -o {{ORG_ALIAS}} -w 10
+sf data export bulk --query-file my-query.soql --output-file accts.json -r json -o {{ORG_ALIAS}}  # Query from file
+sf data export bulk -q "SELECT Id FROM Account" --all-rows --output-file accts.csv -r csv -o {{ORG_ALIAS}}
+
+# Resume / inspect bulk jobs (all support --use-most-recent in lieu of --job-id)
+sf data import resume --job-id <id> -o {{ORG_ALIAS}}
+sf data import resume -i <id> -o {{ORG_ALIAS}}
+sf data import resume --use-most-recent -o {{ORG_ALIAS}}
+sf data update resume --job-id <id> -o {{ORG_ALIAS}}
+sf data update resume --use-most-recent -o {{ORG_ALIAS}}
+sf data upsert resume --job-id <id> -o {{ORG_ALIAS}}
+sf data upsert resume --use-most-recent -o {{ORG_ALIAS}}
+sf data delete resume --job-id <id> -o {{ORG_ALIAS}}
+sf data delete resume --use-most-recent -o {{ORG_ALIAS}}
+sf data export resume --job-id <id> -o {{ORG_ALIAS}}
+sf data export resume --use-most-recent -o {{ORG_ALIAS}}
+sf data bulk results --job-id <id> -o {{ORG_ALIAS}}                                               # Get CSV result files
+sf data resume --job-id <id> -o {{ORG_ALIAS}}                                                     # Bulk 1.0 generic
+sf data resume -i <id> -b <batch-id> -o {{ORG_ALIAS}}                                             # Bulk 1.0 with specific batch
+```
+
+### Tree (small, nested JSON test data)
+```bash
+sf data export tree -q "SELECT Id, Name, (SELECT Id FROM Contacts) FROM Account LIMIT 5" -o {{ORG_ALIAS}} -d data/
+sf data export tree -q "..." -p -x my-plan -d data/ -o {{ORG_ALIAS}}                              # -p generates plan, -x prefixes filenames
+sf data import tree -f data/Account-Contact-plan.json -o {{ORG_ALIAS}}
+sf data import tree --files Account.json,Contact.json -o {{ORG_ALIAS}}                            # Multiple files (ordered)
+sf data import tree -p data/import-plan.json -o {{ORG_ALIAS}}                                     # Plan-driven import
+```
+
+### Files
+```bash
+sf data create file --title 'Logo' --file logo.png --parent-id 001... -o {{ORG_ALIAS}}
+sf data create file -t 'Logo' -f logo.png -i 001... -o {{ORG_ALIAS}}                              # Short form
+```
+
+### Legacy Bulk 1.0 (only if 2.0 unsupported for the op)
+```bash
+sf force data bulk upsert -s Account -f accts.csv -i Ext_Id__c -o {{ORG_ALIAS}} -w 10
+sf force data bulk delete -s Account -f ids.csv -o {{ORG_ALIAS}} -w 10
+sf force data bulk status -i <jobId> -o {{ORG_ALIAS}}
+sf force data bulk status -i <jobId> -b <batchId> -o {{ORG_ALIAS}}                                # Specific batch
+```
+
+---
+
+## Topic: `api` — Raw REST / GraphQL
+
+### Common short flags (`api` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `api` commands |
+| `--method` | `-X` | `api request rest` (HTTP verb — GET/POST/PUT/PATCH/HEAD/DELETE/OPTIONS/TRACE) |
+| `--header` | `-H` | `api request rest` (`-H 'Accept: application/xml'`) |
+| `--body` | `-b` | `api request rest`; on `api request graphql` it's the **required** long-form `--body` (no short form there) |
+| `--file` | `-f` | `api request rest` (Postman-style JSON spec file) |
+| `--include` | `-i` | `api request rest`, `api request graphql` (include HTTP status + headers in output) |
+| `--stream-to-file` | `-S` | `api request rest`, `api request graphql` (binary-safe response capture) |
+
+```bash
+sf api request rest '/services/data/v66.0/sobjects/Account/describe' -o {{ORG_ALIAS}}
+sf api request rest '/services/data/v66.0/query?q=SELECT+Id+FROM+Account' -o {{ORG_ALIAS}}
+sf api request rest '/services/data/v66.0/sobjects/Account' --method POST --body '{"Name":"Acme"}' -o {{ORG_ALIAS}}
+sf api request rest '/services/data/v66.0/sobjects/Account' -X POST -b '{"Name":"Acme"}' -o {{ORG_ALIAS}}      # Short form
+sf api request rest '/services/data/v66.0/sobjects/Account' -X POST -b @body.json -o {{ORG_ALIAS}}             # Body from file
+sf api request rest '/services/data/v66.0/sobjects/Account/001...' -X PATCH -b '{"BillingCity":"SF"}' -o {{ORG_ALIAS}}
+sf api request rest '/services/data/v66.0/limits' -H 'Accept: application/xml' -o {{ORG_ALIAS}}                # XML response
+sf api request rest '/services/data/v66.0/' -i -o {{ORG_ALIAS}}                                                # Include HTTP status/headers
+sf api request rest '/services/data/v66.0/' -S response.txt -o {{ORG_ALIAS}}                                   # Stream to file
+sf api request rest -f request-spec.json -o {{ORG_ALIAS}}                                                       # Postman-style spec
+
+sf api request graphql --body query.graphql -o {{ORG_ALIAS}}
+sf api request graphql --body query.graphql -i -o {{ORG_ALIAS}}                                                # Include HTTP details
+sf api request graphql --body query.graphql -S graphql-out.json -o {{ORG_ALIAS}}                               # Stream to file
+sf api request graphql --body - -o {{ORG_ALIAS}}                                                               # Pipe statement via stdin
+```
+
+---
+
+## Topic: `sobject` & `schema`
+
+### Common short flags (`schema` + `sobject` plugins)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | `sobject describe`, `sobject list` |
+| `--sobject` | `-s` | `sobject describe`, `sobject list` |
+| `--use-tooling-api` | `-t` | `sobject describe` |
+| `--label` | `-l` | `schema generate sobject/field/platformevent` |
+| `--object` | `-o` | `schema generate field`, `schema generate tab` |
+| `--use-default-features` | `-f` | `schema generate sobject` |
+| `--directory` | `-d` | `schema generate tab` |
+| `--icon` | `-i` | `schema generate tab` |
+
+```bash
+sf sobject describe -s Account -o {{ORG_ALIAS}}
+sf sobject describe --sobject Account -o {{ORG_ALIAS}}
+sf sobject describe -s Account -t -o {{ORG_ALIAS}}                                  # Tooling API object
+sf sobject describe -s ApexCodeCoverage --use-tooling-api -o {{ORG_ALIAS}}
+sf sobject list -s custom -o {{ORG_ALIAS}}                                           # all | standard | custom
+sf sobject list --sobject all -o {{ORG_ALIAS}}
+
+# Generate metadata source files (interactive — prompts fill in defaults)
+sf schema generate sobject --label 'Widget' --plural-label 'Widgets'
+sf schema generate sobject -l 'Widget'                                         # Short form
+sf schema generate sobject -l 'Widget' -f                                      # Enable all default features
+sf schema generate field --label 'Color' --object Widget__c
+sf schema generate field -l 'Color' -o force-app/main/default/objects/Widget__c       # Short form, full object dir path
+sf schema generate tab --object Widget__c --icon 1                             # Long form (current rule example)
+sf schema generate tab -o Widget__c -d force-app/main/default/tabs -i 54       # Short form (note: --directory IS required)
+sf schema generate platformevent --label 'Order Event'
+sf schema generate platformevent -l 'Order Event'
+```
+
+---
+
+## Topic: `package` (2GP) & `package1` (1GP)
+
+### Common short flags (`packaging` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-dev-hub` | `-v` | All Dev Hub-targeted package commands |
+| `--target-org` | `-o` | `package install/uninstall*`, `package installed list`, `package install report` |
+| `--package` | `-p` | `package version create/update/delete/promote/report/retrieve`, `package install/uninstall`, `package update/delete`, `package push-upgrade *` |
+| `--path` | `-d` | `package create`, `package version create` |
+| `--name` | `-n` | `package create`, `package update` |
+| `--package-type` | `-t` | `package create` |
+| `--description` | `-d` | `package create`, `package update` |
+| `--no-namespace` | `-e` | `package create` |
+| `--org-dependent` | | `package create` (no short form) |
+| `--installation-key` | `-k` | `package version create`, `package install` |
+| `--installation-key-bypass` | `-x` | `package version create` |
+| `--code-coverage` | `-c` | `package version create` |
+| `--definition-file` | `-f` | `package version create` |
+| `--branch` | `-b` | `package version create` |
+| `--tag` | `-t` | `package version create` |
+| `--version-name` | `-a` | `package version create` |
+| `--version-number` | `-n` | `package version create` |
+| `--version-description` | `-e` | `package version create`, `package version update` |
+| `--wait` | `-w` | `package install`, `package uninstall`, `package version create` |
+| `--apex-compile` | `-a` | `package install` |
+| `--publish-wait` | `-b` | `package install` |
+| `--security-type` | `-s` | `package install` |
+| `--upgrade-type` | `-t` | `package install` |
+| `--no-prompt` | `-r` | `package install`, `package version promote` |
+| `--request-id` | `-i` | `package install report`, `package uninstall report` |
+| `--package-create-request-id` | `-i` | `package version create report` |
+| `--push-request-id` | `-i` | `package push-upgrade report/abort` |
+| `--output-dir` | `-d` | `package version retrieve` |
+| `--start-time` | | `package push-upgrade schedule` (no short form) |
+| `--org-list` | | `package push-upgrade schedule` (no short form) |
+
+### 2GP (recommended)
+```bash
+sf package create --name 'MyPkg' --package-type Unlocked --path force-app -v DevHub
+sf package create -n 'MyPkg' -t Unlocked -d force-app -v DevHub                                 # Short form
+sf package create -n 'MyPkg' -t Managed -d force-app -e -v DevHub                               # No-namespace pkg
+sf package create -n 'MyPkg' -t Unlocked -d force-app --org-dependent -v DevHub                 # Org-dependent
+sf package list -v DevHub
+sf package update --package MyPkg --name 'NewName' -v DevHub
+sf package update -p MyPkg -n 'NewName' -d 'Updated description' -v DevHub
+sf package delete --package 0Ho... -v DevHub
+sf package delete -p 0Ho... --no-prompt -v DevHub
+
+# Version create — long form
+sf package version create --package MyPkg --installation-key-bypass --wait 30 -v DevHub
+# Same, short form
+sf package version create -p MyPkg -x -w 30 -v DevHub
+# With code coverage and explicit version number
+sf package version create -p MyPkg -k password123 -c -n 1.2.0.NEXT -w 30 -v DevHub
+# Async validation (returns sooner; can install but not promote)
+sf package version create -p MyPkg -k password123 --async-validation -w 30 -v DevHub
+# Skip validation (cannot be promoted)
+sf package version create -p MyPkg -x --skip-validation -w 30 -v DevHub
+# With definition file + tag + branch (CI-style)
+sf package version create -p MyPkg -k password123 -f config/pkg-def.json -b main -t v1.2.0 -w 30 -v DevHub
+# Generate ZIP for inspection
+sf package version create -p MyPkg -k password123 --generate-pkg-zip -w 30 -v DevHub
+sf package version create list -v DevHub
+sf package version create report --package-create-request-id 08c... -v DevHub
+sf package version create report -i 08c... -v DevHub
+sf package version list -v DevHub
+sf package version list -p 0Ho... --released -v DevHub                                          # Released versions only
+sf package version report --package 04t... -v DevHub
+sf package version report -p 04t... --verbose -v DevHub
+sf package version promote --package 04t... -v DevHub --no-prompt
+sf package version promote -p 04t... -r -v DevHub                                                # -r ≡ --no-prompt
+sf package version update --package 04t... --version-description '...'
+sf package version update -p 04t... -e 'Updated' -v DevHub
+sf package version delete --package 04t... -v DevHub
+sf package version delete -p 04t... --no-prompt -v DevHub
+sf package version retrieve --package 04t... --output-dir ./retrieved -v DevHub
+sf package version retrieve -p 04t... -d ./retrieved -v DevHub                                  # Short form
+sf package version displayancestry --package 0Ho... -v DevHub
+sf package version displayancestry -p 0Ho... --dot-code -v DevHub                                # Graphviz output
+sf package version displaydependencies --package 04t... -v DevHub
+sf package version displaydependencies -p 04t... -v DevHub
+
+sf package install --package 04t... -o {{ORG_ALIAS}} --wait 10
+sf package install -p 04t... -o {{ORG_ALIAS}} -w 10                                                    # Short form
+sf package install -p 04t... -k password123 -o {{ORG_ALIAS}} -w 10                                     # Key-protected pkg
+sf package install -p 04t... -s AllUsers -t Mixed -o {{ORG_ALIAS}} -w 10                               # AllUsers + mixed upgrade
+sf package install -p 04t... -t DeprecateOnly -r -o {{ORG_ALIAS}} -w 10                                # No-prompt deprecate
+sf package install -p 04t... -a package -b 5 -o {{ORG_ALIAS}} -w 10                                    # Compile only pkg Apex
+sf package install report --request-id 0Hf... -o {{ORG_ALIAS}}
+sf package install report -i 0Hf... -o {{ORG_ALIAS}}
+sf package installed list -o {{ORG_ALIAS}}
+sf package uninstall --package 04t... -o {{ORG_ALIAS}} --wait 10
+sf package uninstall -p 04t... -o {{ORG_ALIAS}} -w 10
+sf package uninstall report --request-id 06y... -o {{ORG_ALIAS}}
+sf package uninstall report -i 06y... -o {{ORG_ALIAS}}
+
+sf package convert --package 033... -v DevHub                                                    # 1GP managed → 2GP managed
+sf package convert -p 033... -k password123 --installation-key-bypass -v DevHub
+
+sf package push-upgrade schedule --package 04t... --start-time '2026-05-01T00:00:00Z' --org-list orgs.csv -v DevHub
+sf package push-upgrade list --package 0Ho... -v DevHub
+sf package push-upgrade list -p 0Ho... --scheduled-last-days 7 -v DevHub                         # Recent only
+sf package push-upgrade report --push-request-id 0DV... -v DevHub
+sf package push-upgrade report -i 0DV... -v DevHub
+sf package push-upgrade abort --push-request-id 0DV... -v DevHub
+sf package push-upgrade abort -i 0DV... -v DevHub
+```
+
+### 1GP (legacy)
+```bash
+sf package1 version create --package <id> --name v1 --version-number 1.0.0.0 -o {{ORG_ALIAS}}
+sf package1 version create -i <id> -n v1 -v 1.0.0.0 -o {{ORG_ALIAS}}                             # Short form
+sf package1 version create get --request-id <id> -o {{ORG_ALIAS}}
+sf package1 version create get -i <id> -o {{ORG_ALIAS}}
+sf package1 version display --package-version-id 04t... -o {{ORG_ALIAS}}
+sf package1 version display -i 04t... -o {{ORG_ALIAS}}
+sf package1 version list -o {{ORG_ALIAS}}
+sf package1 version list -i <package-id> -o {{ORG_ALIAS}}                                        # Filter to one package
+```
+
+---
+
+## Topic: `alias`, `config`, `info`
+
+### Common short flags (`settings` + `info` plugins)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--all` | `-a` | `sf alias unset` |
+| `--no-prompt` | `-p` | `sf alias unset --all` |
+| `--global` | `-g` | `sf config set/unset` |
+| `--verbose` | | `sf config get` (no short form) |
+| `--version` | `-v` | `sf info releasenotes display` |
+
+```bash
+sf alias list
+sf alias set {{ORG_ALIAS}} me@company.com.ibxmain
+sf alias set {{ORG_ALIAS}}=me@company.com.ibxmain my-other-org=other@company.com         # Multiple aliases
+sf alias unset {{ORG_ALIAS}}
+sf alias unset --all --no-prompt                                                    # Wipe all aliases
+sf alias unset -a -p                                                                # Same, short form
+
+sf config set target-org={{ORG_ALIAS}}                 # default org (local — current project only)
+sf config set target-dev-hub=DevHub
+sf config set org-api-version=66.0
+sf config set --global target-org={{ORG_ALIAS}} target-dev-hub=DevHub                     # Global (all projects)
+sf config set -g target-org={{ORG_ALIAS}}                                                  # -g ≡ --global
+sf config get target-org
+sf config get target-org api-version --verbose                                       # Show local-vs-global resolution
+sf config list
+sf config unset target-org
+sf config unset target-org api-version -g                                            # Unset globals
+
+sf info releasenotes display
+sf info releasenotes display -v 7.120.0                                              # Notes for a specific version
+sf info releasenotes display -v latest                                               # Notes for the latest tag
+sf whatsnew                                                                          # Alias for info releasenotes display
+sf version
+sf doctor                                                                            # Diagnostics dump
+sf doctor -c "force:org:list --all"                                                  # Run a command in debug mode + log it
+sf doctor -p @salesforce/plugin-data                                                 # Plugin-specific diagnostics
+sf doctor -d ./diagnostics                                                           # Output dir
+sf doctor -i                                                                          # Open a GitHub issue with results attached
+```
+
+---
+
+## Topic: `template` — Code scaffolding
+
+### Common short flags (`templates` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--name` | `-n` | All `template generate *` commands (most use `--name`; analytics uses `--template-name` and DX site uses `--site-name`) |
+| `--output-dir` | `-d` | All `template generate *` commands |
+| `--template` | `-t` | `template generate project`, `template generate apex class`, `template generate flexipage`, `template generate static-resource`, `template generate ui-bundle` |
+| `--type` | `-t` | `template generate lightning component` (`aura`/`lwc`), `template generate static-resource` |
+| `--default-package-dir` | `-p` | `template generate project` |
+| `--namespace` | `-s` | `template generate project` |
+| `--manifest` | `-x` | `template generate project` |
+| `--label` | `-l` | `template generate visualforce *`, `template generate flexipage` |
+| `--object` | `-s` | `template generate flexipage`, `template generate apex trigger` |
+| `--event` | `-e` | `template generate apex trigger` |
+| `--internal` | | `template generate lightning component` (no short form) |
+
+```bash
+# Project (highest-level scaffold)
+sf template generate project --name MyProject --template standard
+sf template generate project -n MyProject -t standard                                          # Short form
+sf template generate project -n MyProject -t empty -d ./projects -p force-app                  # Empty + custom pkg dir
+sf template generate project -n MyProject -t standard -x                                       # Generate package.xml manifest
+sf template generate project -n MyProject -t standard --lwc-language typescript                # TypeScript-based LWC
+sf template generate project -n MyAgentProject -t agent                                        # Agentforce starter project
+sf template generate project -n MyReactProj -t reactinternalapp                                # React internal app
+sf template generate project -n MyReactProj -t reactexternalapp                                # React external app
+sf template generate project -n MyAnalytics -t analytics                                       # Analytics-template scaffolding
+
+# Apex
+sf template generate apex class --name MyClass --output-dir force-app/main/default/classes
+sf template generate apex class -n MyClass -d force-app/main/default/classes -t ApexUnitTest    # Use unit-test template
+sf template generate apex trigger --name MyTrigger --sobject Account --output-dir force-app/main/default/triggers --event 'before insert,before update'
+sf template generate apex trigger -n MyTrigger -s Account -d force-app/main/default/triggers -e 'before insert,before update'
+
+# Lightning
+sf template generate lightning component --name myCmp --type lwc --output-dir force-app/main/default/lwc
+sf template generate lightning component -n myCmp -t lwc -d force-app/main/default/lwc          # Short form
+sf template generate lightning component -n myCmp -t aura -d force-app/main/default/aura        # Aura instead
+sf template generate lightning event --name myEvt --output-dir force-app/main/default/aura
+sf template generate lightning event -n myEvt -d force-app/main/default/aura
+sf template generate lightning app --name myApp --output-dir force-app/main/default/aura
+sf template generate lightning app -n myApp -d force-app/main/default/aura
+sf template generate lightning interface --name myInt --output-dir force-app/main/default/aura
+sf template generate lightning interface -n myInt -d force-app/main/default/aura
+sf template generate lightning test --name myTest --output-dir force-app/test/default/lwc
+sf template generate lightning test -n myTest -d force-app/test/default/lwc
+
+# FlexiPages, VF, static resources, analytics, DX sites, UI bundles
+sf template generate flexipage --name myPage --type RecordPage --object Account
+sf template generate flexipage -n myPage -t RecordPage -s Account                               # Short form
+sf template generate visualforce page --name myPage --label 'My Page'
+sf template generate visualforce page -n myPage -l 'My Page'
+sf template generate visualforce component --name myCmp --label 'My Cmp'
+sf template generate visualforce component -n myCmp -l 'My Cmp'
+sf template generate static-resource --name myRes --type text
+sf template generate static-resource -n myRes -t text
+sf template generate analytics template --template-name myTpl
+sf template generate digital-experience site --site-name MySite
+sf template generate ui-bundle --name myBundle
+sf template generate ui-bundle -n myBundle -t internal                                          # internal | external
+```
+
+---
+
+## Topic: `cmdt` — Custom Metadata Types
+
+### Common short flags (`custom-metadata` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | `cmdt generate fromorg` |
+| `--type-name` | `-n` (object) / `-t` (record/records) | `cmdt generate object/record/records` |
+| `--name` | `-n` | `cmdt generate field` |
+| `--dev-name` | `-n` | `cmdt generate fromorg` |
+| `--label` | `-l` | `cmdt generate object/field/record/fromorg` |
+| `--plural-label` | `-p` | `cmdt generate object/fromorg` |
+| `--visibility` | `-v` | `cmdt generate object/fromorg` |
+| `--type` | `-f` | `cmdt generate field` (Checkbox/Date/Text/Picklist/etc.) |
+| `--picklist-values` | `-p` | `cmdt generate field` |
+| `--decimal-places` | `-s` | `cmdt generate field` |
+| `--record-name` | `-n` | `cmdt generate record` |
+| `--protected` | `-p` | `cmdt generate record` |
+| `--csv` | `-f` | `cmdt generate records` |
+| `--name-column` | `-n` | `cmdt generate records` |
+| `--sobject` | `-s` | `cmdt generate fromorg` |
+| `--ignore-unsupported` | `-i` | `cmdt generate fromorg` |
+| `--input-directory` | `-i` | `cmdt generate record/records` |
+| `--output-directory` | `-d` | `cmdt generate field/object/record/records` |
+| `--type-output-directory` | `-d` | `cmdt generate fromorg` |
+| `--records-output-dir` | `-r` | `cmdt generate fromorg` |
+
+```bash
+sf cmdt generate object --type-name My_Config
+sf cmdt generate object -n My_Config -l 'My Config' -p 'My Configs' -v Protected
+sf cmdt generate object -n My_Config -l 'My Config' -d force-app/main/default/objects
+sf cmdt generate field --name My_Field --type Text --label 'My Field' --cmdt-name My_Config
+sf cmdt generate field -n My_Field -f Text -l 'My Field' -d force-app/main/default/objects/My_Config__mdt
+sf cmdt generate field -n My_Pick -f Picklist -p A -p B -p C -d force-app/main/default/objects/My_Config__mdt
+sf cmdt generate field -n My_Num -f Number -s 2 -d force-app/main/default/objects/My_Config__mdt   # 2 decimal places
+sf cmdt generate record --type-name My_Config --record-name Default --label 'Default'
+sf cmdt generate record -t My_Config__mdt -n Default -l 'Default' My_Field=foo                    # name=value pairs after flags
+sf cmdt generate record -t My_Config__mdt -n SecretRec -p true My_Field=secret                    # Protected record
+sf cmdt generate records --type-name My_Config --input-directory ./csv
+sf cmdt generate records -t My_Config -f path/to/data.csv -n PrimaryKey -d force-app/main/default/customMetadata
+sf cmdt generate fromorg --dev-name My_Config --sobject My_Source__c -o {{ORG_ALIAS}}
+sf cmdt generate fromorg -n My_Config -s My_Source__c -o {{ORG_ALIAS}}
+sf cmdt generate fromorg -n My_Config -s My_Source__c -i -v Protected -o {{ORG_ALIAS}}                  # Ignore unsupported field types
+sf cmdt generate fromorg -n My_Config -s My_Source__c -d ./out/objects -r ./out/customMetadata -o {{ORG_ALIAS}}
+```
+
+---
+
+## Topic: `lightning` / `ui-bundle` — Local dev preview
+
+### Common short flags (`lightning-dev` + `ui-bundle-dev` plugins)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `lightning dev *` and `ui-bundle dev` commands |
+| `--name` | `-n` | `lightning dev app`, `lightning dev component`, `lightning dev site`, `ui-bundle dev` |
+| `--device-type` | `-t` | `lightning dev app` (`desktop`/`ios`/`android`) |
+| `--device-id` | `-i` | `lightning dev app` (mobile preview only) |
+| `--client-select` | `-c` | `lightning dev component` (skip the component picker prompt) |
+
+```bash
+sf lightning dev app -n MyApp -o {{ORG_ALIAS}}                                   # LEX app preview (desktop)
+sf lightning dev app --name MyApp -o {{ORG_ALIAS}}
+sf lightning dev app -n MyApp -t desktop -o {{ORG_ALIAS}}
+sf lightning dev app -n MyApp -t ios -i 'iPhone 15 Pro Max' -o {{ORG_ALIAS}}     # iOS device preview
+sf lightning dev app -n MyApp -t android -o {{ORG_ALIAS}}                        # Android (prompts for device)
+sf lightning dev component -n myCmp -o {{ORG_ALIAS}}                             # LWC preview in isolation
+sf lightning dev component --name myCmp -o {{ORG_ALIAS}}
+sf lightning dev component -c -o {{ORG_ALIAS}}                                   # Open without selecting a component
+sf lightning dev site -n "Partner Central" -o {{ORG_ALIAS}}                      # Experience Builder preview
+sf lightning dev site --name MySite -o {{ORG_ALIAS}}
+sf ui-bundle dev -n myBundle -o {{ORG_ALIAS}}
+```
+
+### LWC Jest (legacy `force` topic, still required)
+```bash
+sf force lightning lwc test setup
+sf force lightning lwc test run --debug
+sf force lightning lwc test run -d                                          # -d ≡ --debug
+sf force lightning lwc test run --watch                                     # Watch mode
+sf force lightning lwc test create -f force-app/main/default/lwc/myCmp/myCmp.js
+```
+
+---
+
+## Topic: `community` — Experience Cloud
+
+```bash
+sf community list template -o {{ORG_ALIAS}}
+sf community create --name 'Partner Portal' --template-name 'Partner Central' --url-path-prefix partners -o {{ORG_ALIAS}}
+sf community publish --name 'Partner Portal' -o {{ORG_ALIAS}}
+```
+
+---
+
+## Topic: `agent` — Agentforce (Einstein GenAI)
+
+### Common short flags (`agent` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `agent` commands |
+| `--api-name` | `-n` | `agent activate/deactivate`, `agent test run`, `agent test run-eval`, `agent preview`, `agent preview start`, `agent generate template` |
+| `--api-version` | | (no short form on agent commands) |
+| `--bundle-path` | | `agent validate/publish authoring-bundle` (no short form) |
+| `--spec` | `-s` (most) / `--spec` | `agent generate authoring-bundle`, `agent test create`, `agent test run-eval`, `agent create` |
+| `--output-dir` | `-d` | `agent generate authoring-bundle`, `agent generate agent-spec`, `agent generate test-spec`, `agent test run`, `agent test results` |
+| `--type` | `-t` | `agent generate agent-spec` |
+| `--role` | | `agent generate agent-spec` (no short form) |
+| `--company-name` | | `agent generate agent-spec` (no short form) |
+| `--name` | | `agent create` (no short form) |
+| `--version` | | `agent activate` (no short form) |
+| `--session-id` | `-s` | `agent preview send/end`, `agent trace read/delete` |
+| `--message` | `-m` | `agent preview send` |
+| `--wait` | `-w` | `agent test run`, `agent test resume` |
+| `--result-format` | | `agent test run`, `agent test results`, `agent test run-eval` (no short form) |
+| `--job-id` | `-i` | `agent test resume`, `agent test results` |
+| `--agent-api-name` | | `agent generate test-spec`, `agent generate template` |
+| `--agent` | `-a` | `agent trace list/delete` |
+| `--turn` | `-t` | `agent trace read` |
+| `--format` | `-f` | `agent trace read` |
+| `--dimension` | `-d` | `agent trace read` |
+| `--no-prompt` | | `agent trace delete` (no short form) |
+
+```bash
+# Spec + author
+sf agent generate agent-spec --type customer --role 'Resort concierge' --company-name 'Coral Cloud' -o {{ORG_ALIAS}}
+sf agent generate agent-spec -t customer --role 'Resort concierge' --company-name 'Coral Cloud' -d ./specs -o {{ORG_ALIAS}}
+sf agent generate authoring-bundle --spec specs/agent.yaml --output-dir agents
+sf agent generate authoring-bundle -s specs/agent.yaml -d agents
+sf agent validate authoring-bundle --bundle-path agents/MyAgent
+sf agent publish authoring-bundle --bundle-path agents/MyAgent -o {{ORG_ALIAS}}
+sf agent generate template --agent-api-name My_Agent -o {{ORG_ALIAS}}
+
+# Create (non-Agent-Script flow — rarely used)
+sf agent create --name 'Resort Manager' --api-name Resort_Manager --spec specs/agent.yaml -o {{ORG_ALIAS}}
+sf agent create --name 'Resort Manager' -n Resort_Manager -s specs/agent.yaml -o {{ORG_ALIAS}}
+
+# Lifecycle
+sf agent activate --api-name My_Agent --version 2 -o {{ORG_ALIAS}}
+sf agent activate -n My_Agent --version 2 -o {{ORG_ALIAS}}
+sf agent deactivate --api-name My_Agent -o {{ORG_ALIAS}}
+sf agent deactivate -n My_Agent -o {{ORG_ALIAS}}
+
+# Preview (interactive)
+sf agent preview --api-name My_Agent -o {{ORG_ALIAS}}
+sf agent preview -n My_Agent -o {{ORG_ALIAS}}
+sf agent preview start --api-name My_Agent -o {{ORG_ALIAS}}
+sf agent preview start -n My_Agent -o {{ORG_ALIAS}}
+sf agent preview send --session-id <id> --message 'hello' -o {{ORG_ALIAS}}
+sf agent preview send -s <id> -m 'hello' -o {{ORG_ALIAS}}
+sf agent preview sessions
+sf agent preview end --session-id <id> -o {{ORG_ALIAS}}
+sf agent preview end -s <id> -o {{ORG_ALIAS}}
+
+# Trace (preview-session diagnostics)
+sf agent trace list                                                   # All trace files
+sf agent trace list -a My_Agent                                       # Filter by agent
+sf agent trace list --session-id <id>                                 # Filter by session
+sf agent trace list --since 2026-04-20                                # Recorded on/after date
+sf agent trace read -s <session-id>                                   # -s ≡ --session-id; default summary format
+sf agent trace read -s <session-id> -t 2                              # Turn 2 only (-t ≡ --turn)
+sf agent trace read -s <session-id> -f detail -d actions              # Detail format, actions dimension
+sf agent trace read -s <session-id> -f detail -d routing -t 1         # Routing decisions for turn 1
+sf agent trace read -s <session-id> -f detail -d errors               # All errors in session
+sf agent trace read -s <session-id> -f raw                            # Raw JSON
+sf agent trace delete                                                 # All traces (prompts)
+sf agent trace delete -a My_Agent --no-prompt                         # All traces for one agent
+sf agent trace delete --session-id <id>                               # One session
+sf agent trace delete --older-than 7d --no-prompt                     # Older than 7 days
+
+# Tests (legacy `agent test run`)
+sf agent generate test-spec --agent-api-name My_Agent -o {{ORG_ALIAS}}
+sf agent generate test-spec --agent-api-name My_Agent -d ./specs -o {{ORG_ALIAS}}
+sf agent test create --spec specs/agent-test.yaml -o {{ORG_ALIAS}}
+sf agent test list -o {{ORG_ALIAS}}
+sf agent test run --api-name My_Test -o {{ORG_ALIAS}} --wait 10
+sf agent test run -n My_Test -o {{ORG_ALIAS}} -w 10                         # Short form
+sf agent test run -n My_Test -o {{ORG_ALIAS}} -w 10 -d ./test-results --result-format junit
+sf agent test run -n My_Test -o {{ORG_ALIAS}} -w 10 --test-runner agentforce-studio   # or testing-center
+sf agent test run -n My_Test -o {{ORG_ALIAS}} -w 10 --verbose               # Show generated data
+sf agent test resume --job-id <id> -o {{ORG_ALIAS}}
+sf agent test resume -i <id> -w 10 -o {{ORG_ALIAS}}
+sf agent test results --job-id <id> -o {{ORG_ALIAS}} --result-format junit
+sf agent test results -i <id> -o {{ORG_ALIAS}} --result-format junit -d ./test-results
+
+# Tests (rich `agent test run-eval` evaluator framework — newer)
+sf agent test run-eval --spec specs/my-agent-testSpec.yaml -o {{ORG_ALIAS}}
+sf agent test run-eval -s specs/my-agent-testSpec.yaml -o {{ORG_ALIAS}}                                # -s ≡ --spec
+sf agent test run-eval -s specs/my-agent-testSpec.yaml --api-name My_Agent -o {{ORG_ALIAS}}            # Override agent name
+sf agent test run-eval -s specs/eval-payload.json -o {{ORG_ALIAS}} --result-format junit               # JSON payload
+sf agent test run-eval -s specs/eval-payload.json -o {{ORG_ALIAS}} --no-normalize --batch-size 5
+echo '{"tests":[...]}' | sf agent test run-eval --spec - -o {{ORG_ALIAS}}                              # Pipe via stdin
+```
+
+---
+
+## Topic: `flow` / `logic` — Flow & logic tests
+
+### Common short flags (`flow` + `logic` plugins — mirror `apex run test`)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--target-org` | `-o` | All `flow` / `logic` test commands |
+| `--code-coverage` | `-c` | `flow run test`, `flow get test`, `logic run test`, `logic get test` |
+| `--output-dir` | `-d` | All `flow` / `logic` test commands |
+| `--test-level` | `-l` | `flow run test`, `logic run test` |
+| `--class-names` | `-n` | `flow run test` (flow names that contain tests), `logic run test` (Apex test classes) |
+| `--suite-names` | `-s` | `logic run test` (Apex suites; not available for Flow) |
+| `--tests` | `-t` | `flow run test`, `logic run test` |
+| `--result-format` | `-r` | `flow run test`, `flow get test`, `logic run test`, `logic get test` |
+| `--synchronous` | `-y` | `flow run test`, `logic run test` |
+| `--wait` | `-w` | `logic run test` |
+| `--detailed-coverage` | `-v` | `logic run test`, `logic get test` |
+| `--test-run-id` | `-i` | `flow get test`, `logic get test` |
+| `--poll-interval` | `-i` | `logic run test` |
+| `--test-category` | | `logic run test` (no short form; values: Apex/Flow) |
+
+```bash
+# Flow tests
+sf flow run test --test-name MyFlowTest -o {{ORG_ALIAS}} --wait 10
+sf flow run test -t MyFlowTest -o {{ORG_ALIAS}}                                            # Short form (-t ≡ --tests)
+sf flow run test -n Flow1 -n Flow2 -o {{ORG_ALIAS}}                                        # By flow name (each flow has its tests)
+sf flow run test -t Flow1.Test1 -t Flow2.Test2 -l RunSpecifiedTests -o {{ORG_ALIAS}}
+sf flow run test -y -c -r human -d ./test-results -o {{ORG_ALIAS}}                         # Sync + coverage
+sf flow run test -l RunLocalTests -o {{ORG_ALIAS}}
+sf flow get test --test-run-id <id> -o {{ORG_ALIAS}}
+sf flow get test -i <id> -o {{ORG_ALIAS}} -c -r junit -d ./test-results
+
+# Logic tests (combined Apex + Flow)
+sf logic run test -o {{ORG_ALIAS}} --wait 10                                               # Apex + Flow tests combined
+sf logic run test -o {{ORG_ALIAS}} -w 10 -c -y                                             # Short form
+sf logic run test -t MyApexClassTest,FlowTesting.MyFlow.MyFlowTest -o {{ORG_ALIAS}}        # Mix of Apex + Flow
+sf logic run test --test-category Apex --test-category Flow -l RunLocalTests -y -c -o {{ORG_ALIAS}}
+sf logic run test -n MyApexClassTest.methodA -n MyApexClassTest.methodB -s MySuite -o {{ORG_ALIAS}}
+sf logic run test -r junit -d ./test-results -y -c -o {{ORG_ALIAS}}
+sf logic get test --test-run-id <id> -o {{ORG_ALIAS}}
+sf logic get test -i <id> -o {{ORG_ALIAS}} -c -v -r human                                  # Detailed coverage
+```
+
+---
+
+## Topic: `code-analyzer` / `scanner` — Static analysis
+
+`code-analyzer` is the v5 rewrite; `scanner` is legacy v4. This repo uses PMD via `config/pmd-ruleset.xml` directly — these are available if you need rule discovery beyond PMD.
+
+```bash
+sf code-analyzer config
+sf code-analyzer rules --rule-selector pmd
+sf code-analyzer run --workspace force-app/main/default/classes --output-file report.html
+
+# Legacy
+sf scanner rule list --engine pmd
+sf scanner rule describe --rulename OperationWithLimitsInLoop
+sf scanner run --target force-app/main/default/classes --engine pmd --pmdconfig config/pmd-ruleset.xml
+sf scanner run dfa --target force-app --projectdir .
+sf scanner rule add --language apex --path ./my-rules
+sf scanner rule remove --path ./my-rules
+```
+
+---
+
+## Topic: `plugins`, `autocomplete`, `dev`
+
+### Common short flags (`plugins` core + `dev` plugin)
+
+| Long | Short | Used by |
+|------|-------|---------|
+| `--name` | `-n` | `dev generate command` |
+| `--script` | `-s` | `dev convert script` |
+| `--file-name` | `-f` | `dev convert messages` |
+| `--source-dir` | `-s` | `dev audit messages` |
+| `--messages-dir` | `-m` | `dev audit messages` |
+| `--project-dir` | `-p` | `dev audit messages`, `dev convert messages` |
+| `--dry-run` | `-d` | `dev generate flag` |
+| `--event` | `-e` | `dev generate hook` |
+| `--plugin` | `-p` | `plugins trust verify`, `doctor --plugin` |
+| `--command` | `-c` | `doctor --command` |
+| `--output-dir` | `-d` | `doctor --output-dir` |
+| `--create-issue` | `-i` | `doctor --create-issue` |
+
+```bash
+sf plugins                                # List installed plugins
+sf plugins discover                       # Curated 3rd-party list (from plugin-marketplace)
+sf plugins install @salesforce/plugin-foo
+sf plugins install @salesforce/plugin-foo@1.2.3                            # Pinned version
+sf plugins uninstall @salesforce/plugin-foo
+sf plugins update
+sf plugins reset --hard
+sf plugins link /path/to/local/plugin     # For plugin dev
+sf plugins trust verify --plugin @salesforce/plugin-foo
+sf plugins trust verify -p @salesforce/plugin-foo
+
+sf autocomplete                           # Auto-detect shell
+sf autocomplete zsh                       # Prints setup for your shell (bash/zsh/powershell)
+sf autocomplete bash
+sf autocomplete --refresh-cache           # Refresh tab-completion cache
+
+# Plugin development (only if authoring a plugin)
+sf dev generate plugin
+sf dev generate plugin --dry-run
+sf dev generate command --name my:cmd
+sf dev generate command -n my:cmd                                          # Short form
+sf dev generate command -n my:cmd --no-nuts --no-unit                      # Skip auto-generated tests
+sf dev generate flag --command my:cmd
+sf dev generate flag -d                                                     # Dry-run (preview the new flag code)
+sf dev generate hook --event sf:env:list                                    # Generate a hook for an existing event
+sf dev generate library                                                     # Scaffold a library plugin
+sf dev audit messages                                                       # Default ./messages and ./src
+sf dev audit messages -m ./messages -s ./src -p ./my-plugin                 # Explicit dirs
+sf dev convert messages --file-or-dir messages/
+sf dev convert messages -f my-command.json -p ./my-plugin                   # Single message file
+sf dev convert script --source old.sh --destination new.sh                  # sfdx → sf migration
+sf dev convert script -s old.sh                                             # Short form (writes old-converted.sh)
+```
+
+---
+
+## Quick-Reference Cheatsheet
+
+Each block below shows the long-form invocation followed by its short-form equivalent. Both are valid — pick whichever is easier to type/read.
+
+```bash
+# 1. Validate Apex syntax
+sf project deploy start --metadata ApexClass:MyClass -o {{ORG_ALIAS}} --ignore-conflicts
+sf project deploy start -m ApexClass:MyClass -o {{ORG_ALIAS}} -c                         # Short form
+
+# 2. Deploy feature with tests
+sf project deploy start --manifest './manifest/my-feature.xml' -o {{ORG_ALIAS}} \
+    --test-level RunSpecifiedTests --tests MyClassTest --ignore-conflicts --wait 10
+sf project deploy start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} \
+    -l RunSpecifiedTests -t MyClassTest -c -w 10                                   # Short form
+
+# 3. Run a single test with coverage (only reliable way to verify %)
+sf apex run test --class-names MyClassTest -o {{ORG_ALIAS}} \
+    --synchronous --code-coverage --result-format human --wait 10
+sf apex run test -n MyClassTest -o {{ORG_ALIAS}} -y -c -r human -w 10                   # Short form
+
+# 4. Retrieve logs and grep for failures (MANDATORY after any Apex run)
+sf apex get log --log-id recent -o {{ORG_ALIAS}} | grep -E "(EXCEPTION|ERROR|FATAL)"
+sf apex get log -i recent -o {{ORG_ALIAS}} | grep -E "(EXCEPTION|ERROR|FATAL)"          # Short form
+
+# 5. Ad-hoc SOQL
+sf data query -q "SELECT Id FROM IndividualApplication WHERE RecordType.DeveloperName='PRM_PDMManualChange' LIMIT 5" -o {{ORG_ALIAS}}
+sf data query -q "SELECT Id FROM IndividualApplication LIMIT 5" -r csv --output-file out.csv -o {{ORG_ALIAS}}   # Save as CSV
+
+# 6. Describe an object
+sf sobject describe -s HealthcareFacility -o {{ORG_ALIAS}} | head -80
+
+# 7. Retrieve a component before editing (MANDATORY per repo convention)
+sf project retrieve start --metadata ApexClass:MyClass -o {{ORG_ALIAS}}
+sf project retrieve start -m ApexClass:MyClass -o {{ORG_ALIAS}}                          # Short form
+sf project retrieve start -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} -c -w 30         # Manifest + ignore-conflicts
+
+# 8. Validate-only (produce a deploy ID for later quick-deploy)
+sf project deploy validate -x ./manifest/my-feature.xml -o {{ORG_ALIAS}} \
+    -l RunSpecifiedTests -t MyClassTest -w 10
+sf project deploy quick -i <deploy-id> -o {{ORG_ALIAS}} -w 10                            # Promote validated deploy
+```
+
+---
+
+## Related Rules
+
+- [`test-deploy-ruleset.mdc`](./test-deploy-ruleset.mdc) — mandatory deploy/test/log-verify workflow
+- [`apex-test-class-creation.mdc`](./apex-test-class-creation.mdc) — Apex test structure
+- [`pmd-ruleset.mdc`](./pmd-ruleset.mdc) — static analysis
+- [`salesforce-schema-validation.mdc`](./salesforce-schema-validation.mdc) — schema-first workflow

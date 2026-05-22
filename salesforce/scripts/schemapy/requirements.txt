@@ -1,0 +1,18 @@
+# Python dependencies for the schema-generation pipeline.
+#
+# Install via:
+#   pip install -r scripts/schemapy/requirements.txt
+#
+# Used by scripts/schemapy/auto_generate_schema.py (orchestrator) and the
+# three child scripts: generate_sf_er_schema.py, split_schema_by_object.py,
+# enrich_schema_with_picklists.py — all colocated under scripts/schemapy/.
+
+# TOON (Token-Oriented Object Notation) — current encoding for all
+# config/schema/ outputs. v3.0 spec, official Python implementation.
+# Currently in beta; --pre is required when installing manually.
+toon-format>=0.9.0b1
+
+# Trusted CA bundle for the direct HTTPS calls collect_usage_stats.py
+# makes against Salesforce's REST API. Stdlib's default trust store is
+# empty on python.org macOS builds and many venvs.
+certifi>=2024.0.0

@@ -100,8 +100,8 @@ Custom CSS and JavaScript for enhanced IDE appearance including:
 
 Automated Salesforce development utilities:
 
-- **Schema Generation**: Automated Salesforce object schema extraction
-- **Picklist Enrichment**: Adds active picklist values to schema files
+- **Schema Pipeline (`schemapy`)**: 12-step pipeline that retrieves metadata, emits a TOON-encoded ER schema, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders an `ER.md` Mermaid diagram
+- **AI-Agent Rules Bootstrap (`initagentrulespy`)**: One-command Python kit that drops ~44 curated rule / skill / doc / manifest / config files into any new Salesforce repo (auto-detects target-org, Java home, and PMD path)
 - **PMD Rulesets**: Static code analysis rulesets for Apex quality and security
 - **MCP Wrapper**: Salesforce CLI integration for AI coding assistants
 
@@ -121,7 +121,9 @@ Automated Salesforce development utilities:
 - [Code OSS Settings](code-oss/settings/README.md) - Configuration file variants explained
 - [Code OSS Profiles](code-oss/profiles/README.md) - Profile overview
 - [Code OSS Customization](code-oss/customization/README.md) - Quick setup for custom styles
-- [Salesforce Scripts](salesforce/scripts/README.md) - Python script documentation
+- [Salesforce Scripts](salesforce/scripts/README.md) - Index of the `schemapy` and `initagentrulespy` Python kits
+- [`schemapy` — Schema Pipeline](salesforce/scripts/schemapy/README.md) - 12-step TOON-encoded schema generator
+- [`initagentrulespy` — Rules Bootstrap](salesforce/scripts/initagentrulespy/README.md) - Bootstrap AI-agent rules into a new Salesforce repo
 - [Salesforce PMD Rulesets](salesforce/pmd/README.md) - Static code analysis rulesets
 - [Workspace Examples](workspace-examples/README.md) - Workspace vs user settings
 

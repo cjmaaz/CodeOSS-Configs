@@ -1,0 +1,159 @@
+---
+description: ZERO-TOLERANCE schema-read policy. Every Apex / SOQL / DML / LWC / OmniStudio / metadata change against any Salesforce object MUST follow the read sequence below before code is written. Generic across orgs.
+alwaysApply: true
+---
+
+# Salesforce schema read policy (ZERO TOLERANCE)
+
+> **You MUST follow this rule before writing any code that touches a Salesforce object.** No exceptions. Skipping it leads to deployment failures, runtime errors, and silent data corruption. The schema files in `config/schema/` are the source of truth for AI agents; the org is the source of truth for the schema files. Both are kept in sync by `scripts/schemapy/auto_generate_schema.py`.
+>
+> If the schema files are missing or look stale, regenerate first: `python3 scripts/schemapy/auto_generate_schema.py`. Don't proceed against an empty `config/schema/`.
+
+## The 7-file layout (per object)
+
+Every object lives at `config/schema/objects/<ObjectApiName>/` with up to 7 small TOON files. Read them lazily — the strict sequence below tells you which file to open for which task.
+
+```
+config/schema/objects/<ObjectApiName>/
+  schema.toon                  ALWAYS — slim index: object meta + counts + file pointers
+  fields.toon                  ALWAYS — every field as one tabular row; lookups carry reference_path
+  record_types.toon            optional — RecordTypes (api_name, label, description, active, record_count)
+  validation_rules.toon        optional — validation rules + error formulas
+  related_relationships.toon   optional — incoming references (parent -> child)
+  picklists.toon               optional — TWO blocks: picklists: (single-select) + multipicklists: (multi-select)
+  formulas.toon                optional — calculated field expressions
+```
+
+Plus three companion files at `config/schema/`:
+
+```
+_index.toon                    Master index of every object with file pointers
+_search_index.toon             Lightweight cross-object field search
+_junctions.toon                Detected junction objects + parent FKs + record counts
+ER.md (project root)           Mermaid ER of every junction (read first for relationship overview)
+```
+
+## STRICT read sequence (the only sanctioned reading order)
+
+There are TWO triggers — task-driven (what you're trying to do) AND field-driven (what you see on a row in fields.toon). Field-driven triggers fire on read AND write — they are the strictest.
+
+### Field-driven mandatory reads (fire any time you SEE this on a fields.toon row)
+
+| Field shape you see in fields.toon | What you MUST also open |
+|---|---|
+| `type: Picklist` | MUST open `objects/<X>/picklists.toon` and find the field name in the `picklists:` block. NEVER use any value not listed there. With `picklists_usage_status: live_counts`, prefer values where `count > 0`. |
+| `type: MultiselectPicklist` | MUST open `objects/<X>/picklists.toon` and find the field name in the `multipicklists:` block. NEVER use any value not listed there. Per-value usage counts are NOT obtainable for multi-select. |
+| `api_name: RecordTypeId` (Lookup, `reference_to: RecordType`) | MUST open `objects/<X>/record_types.toon` and use `api_name` (DeveloperName) to resolve the Id at runtime. NEVER hardcode the Id. With `usage_status: live_counts`, treat `record_count: 0` as deprecated. |
+| `type: Lookup` or `MasterDetail` (any other) | MUST follow the `reference_path` cell to the parent's `schema.toon` and re-enter this table from the top. |
+
+### Task-driven extras
+
+| Task | Read in order |
+|---|---|
+| Any code that names a field, type, or constraint on Object X | `objects/<X>/schema.toon` (always) -> `objects/<X>/fields.toon` |
+| Hit a validation error on deploy | + `objects/<X>/validation_rules.toon` |
+| Traversing parent -> child (e.g. "what objects point AT X") | + `objects/<X>/related_relationships.toon` |
+| Cross-object relationship overview ("how is everything wired up") | `config/schema/_junctions.toon` and `ER.md` |
+| Field is calculated (formula behaves unexpectedly) | + `objects/<X>/formulas.toon` |
+
+## Count semantics (the only sanctioned interpretation)
+
+### picklists.toon — two blocks, two statuses, value+label always paired
+
+Every `picklists.toon` carries TWO top-level blocks:
+
+- `picklists:` — single-select picklist fields. These CAN be counted via SOQL `GROUP BY`. The block's status lives in `metadata.picklists_usage_status`.
+- `multipicklists:` — multi-select picklist fields. These CANNOT be counted via SOQL `GROUP BY`. The block's status is ALWAYS `metadata.multipicklists_usage_status: not_applicable`.
+
+Both blocks emit each picklist field as a tabular sub-block. Every row carries `label` and `value` columns. `value` is what you use in code, SOQL, and DML. `label` is what users see in the UI. They CAN differ (`value: PCP`, `label: Primary Care Physician`) — never assume they're the same.
+
+Read `metadata.picklists_usage_status` FIRST when working with the `picklists:` block:
+
+- `live_counts` — sub-blocks use `values[N]{label,value,count}:` form; `metadata.picklists_usage_collected_date` present.
+  - `count: 0` means the value is DECLARED but ZERO records use it. Treat as deprecated unless seeding a brand-new picklist.
+  - `count > 0` means the value is in active use; the number is the record total at collection time.
+  - When `metadata.picklists_with_query_errors: [...]` is non-empty, those specific picklist fields couldn't be counted (SOQL failures); their sub-block falls back to `values[N]{label,value}:` (no count column).
+- `not_collected` — sub-blocks use `values[N]{label,value}:` form (no count column). NEVER infer "deprecated" from absence of a count. `metadata.picklists_usage_not_collected_reason` (optional) explains why: `pending` (Step 10 hasn't run yet — default), `no_query_access` (the user can't query the object), `empty_object` (object has 0 records — every count would be 0), `query_error` (other SOQL failure).
+- `not_applicable` — present only when there are no single-select picklists on this object (every picklist is multi-select).
+
+For the `multipicklists:` block: sub-blocks always use `values[N]{label,value}:` form. The value list is the declared metadata, full stop. Per-value usage is unknowable through standard SOQL on multi-select picklists; do not seek count data.
+
+### record_types.toon — every row already has api_name + label + count column
+
+Shape: `record_types[N]{api_name,label,description,active,record_count}:`. `api_name` is the DeveloperName — the stable identifier you use in Apex (`Schema.SObjectType.<X>.getRecordTypeInfosByDeveloperName().get('<api_name>').getRecordTypeId()`). Treat `api_name` as the "value" half of the value+label pair.
+
+`metadata.usage_status` is `live_counts` or `not_collected`:
+
+- `live_counts` — `record_count` column present.
+  - `record_count: 0` means the RecordType is DECLARED but ZERO records use it. Treat as deprecated unless your task is explicitly to seed a brand-new RecordType.
+  - `record_count > 0` means the RecordType is in active use.
+- `not_collected` — `record_count` column absent. NEVER infer "deprecated" from absence of a count. `metadata.usage_not_collected_reason` (optional) explains why with the same enum as picklists.
+
+### Refreshing stale counts
+
+```bash
+python3 scripts/schemapy/auto_generate_schema.py            # full pipeline (~50 min)
+python3 scripts/schemapy/collect_usage_stats.py --org {{ORG_ALIAS}}  # just Step 10 (~15-25 min)
+python3 scripts/schemapy/collect_usage_stats.py --org {{ORG_ALIAS}} --objects Account,Case  # targeted
+```
+
+## fields.toon decoding rules (mandatory)
+
+Every cell in `fields.toon` is a string on the wire so the file stays in TOON tabular form. Decode per the conventions documented in the file's own `metadata.cell_value_decoding`:
+
+- `""` (empty string) — value is absent / null. Do NOT confuse with the literal string `""`.
+- `"true"` / `"false"` — boolean.
+- digit-only — integer.
+- `"A|B|C"` (pipe-separated) — list of strings (currently used for polymorphic `reference_to` / `reference_path`).
+- everything else — string.
+
+`reference_path` is auto-computed from `reference_to`. For polymorphic refs it is pipe-aligned with `reference_to` slot-for-slot; an empty slot means the parent is not in this `config/schema/` snapshot (typically a system entity like `Group`).
+
+## STRICT NEVER list
+
+- NEVER write code that names a field without first opening `fields.toon` for that object.
+- NEVER use a Picklist or MultiselectPicklist value (in code, SOQL, OmniScript, test data — anywhere) without first opening that object's `picklists.toon` and confirming the value is listed under the matching field name in the correct block (`picklists:` for single-select, `multipicklists:` for multi-select). Read or write, this rule applies.
+- NEVER use a RecordType DeveloperName (or set RecordTypeId behavior on an object) without first opening that object's `record_types.toon` and finding the DeveloperName in the `api_name` column. Resolve the Id at runtime; never hardcode.
+- NEVER assume `value` and `label` are the same for a picklist value — they commonly differ. Use the `value` column in code/SOQL/DML; the `label` column is for display.
+- NEVER infer "deprecated" from absence of a count column. Check `picklists_usage_status` / `usage_status` first; only `live_counts` + `count: 0` (or `record_count: 0`) means deprecated.
+- NEVER assume `relationship_name`. Read it from the FK row in `fields.toon`.
+- NEVER navigate from a Lookup field to its parent without following `reference_path`. The parent might not be what the field name suggests (e.g. `PractitionerId` on a Health Cloud junction commonly references `Contact`, not anything called "Practitioner").
+- NEVER edit any file under `config/schema/` by hand. Re-run `python3 scripts/schemapy/auto_generate_schema.py` instead.
+- NEVER skim only the combined `config/salesforce-er-schema.toon` — it is the build intermediate, not the agent-facing source. Always read the per-object split.
+
+## Refresh policy
+
+`config/schema/` is regenerated by `scripts/schemapy/auto_generate_schema.py` (Steps 7–12). Re-run when:
+
+- A field, picklist value, RecordType, or validation rule was just added/changed in the org.
+- You suspect drift (e.g. a field referenced in a recent commit doesn't appear in `fields.toon`).
+- `metadata.generated_date` on `config/schema/_index.toon` is more than a few days old and you're touching schema-sensitive code.
+
+The full pipeline takes ~50 minutes for a 600+-object org. Steps 8 (split), 11 (junctions), 12 (ER) are fast and can be re-run independently. Step 10 (`collect_usage_stats.py`) can be re-run targeted at a single object via `--objects <Name>`.
+
+## Worked example (generic — no org-specific assumptions)
+
+Suppose you need to write Apex that creates a `Case` with a Contact reference, sets the `Type` picklist, and uses a specific RecordType.
+
+1. Open `config/schema/objects/Case/schema.toon`. Confirm the object exists, see file pointers and counts.
+2. Open `config/schema/objects/Case/fields.toon`. Find:
+   - `ContactId` row — note `reference_to: Contact`, `reference_path: objects/Contact/schema.toon`.
+   - `Type` row — note `type: Picklist`. (Field-driven trigger fires.)
+   - `RecordTypeId` row — note `type: Lookup`, `reference_to: RecordType`. (Field-driven trigger fires.)
+3. (Lookup follow-up.) Open `config/schema/objects/Contact/schema.toon` to confirm Contact exists and to traverse if you need any Contact field.
+4. (Picklist trigger.) Open `config/schema/objects/Case/picklists.toon`. Locate the `Type` block under the top-level `picklists:` key. Read `metadata.picklists_usage_status`. With `live_counts`, choose only from values listed there with non-zero `count`; treat `count: 0` as deprecated.
+5. (RecordTypeId trigger.) Open `config/schema/objects/Case/record_types.toon`. Find your intended RecordType by `api_name`. Use the `api_name` (DeveloperName) at runtime via `Schema.SObjectType.Case.getRecordTypeInfosByDeveloperName().get('<api_name>').getRecordTypeId()`. With `usage_status: live_counts`, treat `record_count: 0` as deprecated.
+6. Now write the code.
+
+## When the schema doesn't have what you need
+
+If the org actually has a field/picklist/RecordType that isn't in `config/schema/`:
+
+- Re-run `python3 scripts/schemapy/auto_generate_schema.py` first.
+- If still absent, the org user/permission set you're using probably can't `describe` the object. That is a blocker — surface it explicitly. Don't guess the schema; don't open `sf sobject describe` results into your code path. Ask for the right credentials or scope.
+
+## Pointers
+
+- Full file-shape reference: [`config/schema/README.md`](../../config/schema/README.md)
+- Cross-object relationship overview: [`ER.md`](../../ER.md), generated from [`config/schema/_junctions.toon`](../../config/schema/_junctions.toon)
+- Pipeline entry point: [`scripts/schemapy/auto_generate_schema.py`](../../scripts/schemapy/auto_generate_schema.py)

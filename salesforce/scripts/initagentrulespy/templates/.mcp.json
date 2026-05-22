@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "salesforce": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@salesforce/mcp@0.30.8",
+        "--orgs",
+        "DEFAULT_TARGET_ORG",
+        "--toolsets",
+        "all",
+        "--allow-non-ga-tools"
+      ]
+    },
+    "salesforce-api-context": {
+      "type": "http",
+      "url": "https://api.salesforce.com/platform/mcp/v1-beta.2/platform/salesforce-api-context"
+    },
+    "salesforce-metadata-experts": {
+      "type": "http",
+      "url": "https://api.salesforce.com/platform/mcp/v1-beta.2/platform/metadata-experts"
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "{{WORKSPACE_PATH}}"
+      ]
+    }
+  }
+}

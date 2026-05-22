@@ -1,0 +1,325 @@
+---
+description: Apply this rule when creating, modifying, deploying, or executing ANY Apex code (classes, triggers, test classes, anonymous Apex, batch jobs) in any Salesforce org. This rule ensures syntax validation, proper deployment, test execution, and MANDATORY log verification to catch hidden failures, automation behavior, and exceptions.
+alwaysApply: false
+---
+# Salesforce Deployment, Testing & Log Verification Ruleset
+
+> **See also:** [`sf-cli-commands.mdc`](./sf-cli-commands.mdc) — canonical `sf` CLI reference (deploy / retrieve / apex / data / org / package / code-analyzer). Consult it for any flag or subcommand not spelled out here; the commands in this ruleset are the *minimum required sequence*, not the full CLI surface.
+
+## 🚨 MANDATORY: Retrieve BEFORE editing
+
+**`{{ORG_ALIAS}}` is the source of truth — local files are not.** Other engineers and admins deploy straight to the org, so components on disk may be outdated. **Before touching ANY Apex class, trigger, or test class — or anything else you plan to deploy — you MUST retrieve the current version from `{{ORG_ALIAS}}` first:**
+
+```bash
+sf project retrieve start --metadata ApexClass:<ClassName> -o {{ORG_ALIAS}}
+sf project retrieve start --metadata ApexTrigger:<TriggerName> -o {{ORG_ALIAS}}
+sf project retrieve start --manifest manifest/<feature>.xml -o {{ORG_ALIAS}}   # multi-type scope
+```
+
+Editing a stale file and then deploying will silently overwrite the newer version in the org. This step is non-negotiable; it sits logically BEFORE Rule 1 (syntax validation) below.
+
+## ⚠️ CRITICAL WARNING - ZERO TOLERANCE POLICY
+
+**NEVER SKIP DEPLOYMENT VALIDATION OR LOG VERIFICATION. NO EXCEPTIONS.**
+
+### ❌ PROHIBITED Actions:
+- ❌ **NEVER** deploy code without syntax validation first
+- ❌ **NEVER** skip test class execution for Apex classes
+- ❌ **NEVER** skip Apex log verification after execution
+- ❌ **NEVER** overwrite existing manifest files
+- ❌ **NEVER** assume success without log verification
+
+### ⚠️ Consequences:
+- Silent failures in production (triggers, flows, validations)
+- Hidden exceptions caught and suppressed
+- Data corruption from unexpected automation
+- Governor limit violations discovered too late
+
+### ✅ Why Log Verification is CRITICAL:
+- **Triggers fire silently** - May modify data without visible confirmation
+- **Flows auto-populate fields** - Changes happen behind the scenes
+- **Validation rules fail quietly** - Error messages only in logs
+- **Exceptions get caught** - Try-catch blocks hide failures
+- **Governor limits approach** - Early warning in log metrics
+
+---
+## 🎯 Golden Rule
+
+**Deploy, test, verify logs. ALWAYS. ✅**
+
+```bash
+# ALWAYS follow this sequence:
+# 1. Validate syntax
+sf project deploy start --metadata ApexClass:YourClass -o YourOrg
+# 2. Deploy with tests
+sf project deploy start --manifest './manifest/your-feature.xml' -o YourOrg --test-level RunSpecifiedTests --tests YourClassTest
+# 3. Check logs
+sf apex get log --log-id recent -o YourOrg | grep -E "(EXCEPTION|ERROR)"
+```
+
+Applies to:
+- ✅ Every Apex class deployment
+- ✅ Every trigger deployment
+- ✅ Every test execution
+- ✅ Every anonymous Apex run
+- ✅ Every batch job execution
+
+---
+## MANDATORY Deployment Rules
+
+### Rule 1: Validate Syntax Immediately
+**CRITICAL - CANNOT BE SKIPPED:**
+```bash
+sf project deploy start --metadata ApexClass:<ClassName> -o <OrgAlias> --ignore-conflicts
+```
+**If validation fails, STOP and fix syntax errors before proceeding.**
+
+### Rule 2: Create NEW Manifest (Never Overwrite)
+```bash
+# Create new manifest with descriptive name
+manifest/<feature-or-fix-name>.xml
+```
+
+**Include ONLY modified files:**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>YourModifiedClass</members>
+        <members>YourModifiedClassTest</members>
+        <name>ApexClass</name>
+    </types>
+    <version>65.0</version>
+</Package>
+```
+**❌ NEVER overwrite existing manifests**
+
+### Rule 3: Run Test Classes
+```bash
+sf project deploy start --manifest './manifest/<your-manifest>.xml' -o <OrgAlias> --test-level RunSpecifiedTests --tests <TestClassName> --ignore-conflicts
+```
+
+**Requirements:**
+- Every Apex class must have a test class (`<ClassName>Test`)
+- Test coverage must meet 75%+ (for production)
+
+### Rule 4: Check Apex Logs
+**MANDATORY after ANY Apex execution:**
+- Running test classes
+- Executing anonymous Apex
+- Running batch jobs
+- Any DML operations
+
+**Why logs are critical:**
+- Triggers may fire and modify data silently
+- Flows/Process Builders can auto-populate fields
+- Validation rules might fail without visible errors
+- Exceptions may be caught and hidden
+- Governor limits may be approaching thresholds
+
+---
+## Complete Workflow
+
+### Step 1: Deploy & Validate Syntax
+```bash
+sf project deploy start --metadata ApexClass:MyClass -o MyOrg --ignore-conflicts
+```
+✅ If successful → proceed | ❌ If failed → fix syntax errors immediately
+
+### Step 2: Create Manifest & Deploy with Tests
+```bash
+sf project deploy start --manifest './manifest/my-feature.xml' -o MyOrg --test-level RunSpecifiedTests --tests MyClassTest --ignore-conflicts
+```
+
+### Step 3: Retrieve and Check Apex Logs
+```bash
+# Get most recent log
+sf apex get log --log-id recent -o MyOrg
+
+# Search for errors
+sf apex get log --log-id <LogId> -o MyOrg | grep -E "(EXCEPTION|ERROR|DUPLICATE_VALUE|VALIDATION)"
+
+# Search for automation
+sf apex get log --log-id <LogId> -o MyOrg | grep -E "(CODE_UNIT_STARTED.*trigger|FLOW_START)"
+```
+
+---
+## Key Log Patterns
+
+| Pattern | Indicates | Action |
+|---------|-----------|--------|
+| `EXCEPTION_THROWN` | Code threw exception | Review error message and stack trace |
+| `DUPLICATE_VALUE` | Unique constraint violated | Check which field and record ID |
+| `VALIDATION_RULE` | Validation rule failed | Review rule name and error message |
+| `CODE_UNIT_STARTED.*trigger` | Trigger executed | Verify expected trigger behavior |
+| `FLOW_START` | Flow/Process Builder executed | Confirm automation ran as expected |
+| `VARIABLE_ASSIGNMENT` | Field auto-populated | Note which fields were set by automation |
+| `DML_BEGIN` | DML operation started | Count operations, check against expected |
+| `CUMULATIVE_LIMIT_USAGE` | Governor limits | Verify limits not approaching threshold |
+
+---
+## Example: Deploy, Test, Verify Logs
+
+**Scenario:** Created `AccountService.cls` to manage account data
+
+### Step 1: Validate Syntax
+```bash
+sf project deploy start --metadata ApexClass:AccountService -o MyOrg --ignore-conflicts
+```
+✅ Deployment succeeded
+
+### Step 2: Deploy with Tests
+Create `manifest/account-service.xml` and deploy:
+```bash
+sf project deploy start --manifest './manifest/account-service.xml' -o MyOrg --test-level RunSpecifiedTests --tests AccountServiceTest --ignore-conflicts
+```
+✅ Deployment succeeded, tests passed
+
+### Step 3: Execute Anonymous Apex
+```bash
+echo "AccountService.processAccounts();" | sf apex run -o MyOrg
+```
+
+### Step 4: Check Logs
+```bash
+sf apex get log --log-id recent -o MyOrg > /tmp/apex_log.txt
+cat /tmp/apex_log.txt | grep -E "(EXCEPTION|ERROR|DUPLICATE_VALUE)"
+```
+
+**Output found:**
+```
+EXCEPTION_THROWN|System.DmlException: DUPLICATE_VALUE, Email__c duplicates value on record with id: 003Ov0000012345IAA
+```
+
+### Step 5: Find Root Cause
+```bash
+cat /tmp/apex_log.txt | grep -B 30 "DUPLICATE_VALUE"
+```
+
+**Output:**
+```
+DML_BEGIN|[156]|Op:Insert|Type:Contact|Rows:1
+CODE_UNIT_STARTED|[EXTERNAL]|ContactTriggerHandler
+VARIABLE_ASSIGNMENT|[89]|contact.Email|"john@example.com"
+EXCEPTION_THROWN|[156]|System.DmlException: DUPLICATE_VALUE
+```
+
+**Result:** `ContactTriggerHandler` trigger auto-populates `Email`, causing duplicate error.
+
+### Step 6: Fix and Redeploy
+- Updated code to check for existing contacts
+- Re-deployed and checked logs - ✅ No errors
+
+---
+## Common Log Analysis Commands
+
+```bash
+# Find triggers
+sf apex get log --log-id <LogId> -o <OrgAlias> | grep "CODE_UNIT_STARTED.*trigger"
+
+# Find auto-populated fields
+sf apex get log --log-id <LogId> -o <OrgAlias> | grep "VARIABLE_ASSIGNMENT" | grep -v "null"
+
+# Count DML operations
+sf apex get log --log-id <LogId> -o <OrgAlias> | grep "DML_BEGIN" | wc -l
+
+# Check governor limits
+sf apex get log --log-id <LogId> -o <OrgAlias> | grep -A 15 "CUMULATIVE_LIMIT_USAGE"
+```
+
+---
+## ⚠️ CRITICAL: Why Log Verification Cannot Be Skipped
+
+| Scenario | What Happens | Only Visible In Logs |
+|----------|--------------|---------------------|
+| **Silent Trigger** | Trigger fires and modifies records | Trigger execution and changes |
+| **Caught Exception** | Try-catch hides error, data corrupted | EXCEPTION_THROWN message |
+| **Validation Failure** | Record not saved, user assumes success | VALIDATION_RULE failure |
+| **Duplicate Error** | Need specific record ID to debug | Duplicate record ID |
+| **Governor Limit** | Approaching limit (90/100 queries) | CUMULATIVE_LIMIT_USAGE |
+
+**Without log verification:**
+- ❌ 30+ minutes debugging mysterious failures
+- ❌ Data corruption goes unnoticed
+- ❌ Cannot reproduce issues
+
+**With log verification:**
+- ✅ Issues caught immediately
+- ✅ Exact error messages
+- ✅ Confident deployments
+
+---
+## Common Mistakes
+
+| Mistake | Why Wrong | Correct Approach |
+|---------|-----------|------------------|
+| Skip syntax validation | Code fails at deployment | Always validate immediately |
+| Overwrite manifest | Loses history | Create new manifest each time |
+| Skip test classes | Code isn't validated | Always run tests |
+| **Skip log verification** | **Hidden failures** | **Always check logs** |
+| Assume success | Automation may have failed | Verify in logs |
+
+---
+## Final Checklist
+
+**Before marking ANY Apex work as complete:**
+
+### Deployment
+- [ ] Syntax validated
+- [ ] New manifest created (descriptive name)
+- [ ] Only modified files included
+- [ ] Test class run successfully
+- [ ] Code coverage verified (75%+)
+
+### Log Verification (MANDATORY)
+- [ ] **Apex log retrieved and reviewed**
+- [ ] **No EXCEPTION or ERROR found**
+- [ ] **Expected triggers fired**
+- [ ] **Auto-populated fields noted**
+- [ ] **DML operations match expected**
+- [ ] **Governor limits acceptable**
+
+---
+## Enforcement
+
+**ZERO TOLERANCE for skipping steps.**
+
+**MUST complete ALL steps for EVERY deployment:**
+1. ✅ Validate syntax immediately
+2. ✅ Create new manifest
+3. ✅ Run test classes
+4. ✅ Check Apex logs
+5. ✅ Verify no errors in logs
+
+**Applies to all Apex deployments, triggers, tests, anonymous Apex, and batch jobs.**
+
+**No exceptions. No shortcuts.**
+
+---
+## Quick Reference
+
+```bash
+# Deploy & Validate
+sf project deploy start --metadata ApexClass:<ClassName> -o <OrgAlias> --ignore-conflicts
+
+# Deploy with Tests
+sf project deploy start --manifest './manifest/<name>.xml' -o <OrgAlias> --test-level RunSpecifiedTests --tests <TestClassName> --ignore-conflicts
+
+# Get Recent Log
+sf apex get log --log-id recent -o <OrgAlias>
+
+# Search for Errors
+sf apex get log --log-id <LogId> -o <OrgAlias> | grep -E "(EXCEPTION|ERROR|DUPLICATE_VALUE)"
+```
+
+---
+## Golden Rules
+
+1. ✅ **ALWAYS validate syntax** before proceeding
+2. ✅ **ALWAYS create new manifests** (never overwrite)
+3. ✅ **ALWAYS run test classes** with Apex deployments
+4. ✅ **ALWAYS check Apex logs** after execution
+5. ✅ **NEVER assume success** without log verification
+
+**Remember:** Apex logs reveal the TRUTH about what happened in your org. Silent failures, hidden automation, and subtle errors only appear in logs.
+---

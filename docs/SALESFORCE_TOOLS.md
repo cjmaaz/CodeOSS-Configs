@@ -7,7 +7,8 @@
 ## Table of Contents
 
 - [Overview](#overview)
-- [Python Schema Scripts](#python-schema-scripts)
+- [Python Schema Scripts (`schemapy`)](#python-schema-scripts-schemapy)
+- [AI-Agent Rules Bootstrap (`initagentrulespy`)](#ai-agent-rules-bootstrap-initagentrulespy)
 - [PMD Rulesets for Apex](#pmd-rulesets-for-apex)
 - [MCP Wrapper for Salesforce](#mcp-wrapper-for-salesforce)
 - [IDE Integration](#ide-integration)
@@ -21,104 +22,153 @@
 
 This repository contains powerful automation tools for Salesforce development:
 
-### 1. Python Schema Scripts
+### 1. Python Schema Scripts (`schemapy`)
 
-Automated tools for generating and enriching Salesforce object schemas with metadata, picklist values, and field definitions.
+12-step pipeline that retrieves your org's metadata, generates a [TOON](https://github.com/toon-format/spec/blob/main/SPEC.md)-encoded ER schema, shards it into per-object folders, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders a Mermaid `ER.md` diagram at the project root.
 
-### 2. PMD Rulesets
+### 2. AI-Agent Rules Bootstrap (`initagentrulespy`)
+
+Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~44 files) into any new Salesforce repo. Auto-detects `target-org`, Java home, and PMD binary path and substitutes them in.
+
+### 3. PMD Rulesets
 
 Pre-configured static code analysis rulesets for Apex code quality, security, and best practices enforcement.
 
-### 3. MCP Wrapper
+### 4. MCP Wrapper
 
 Node.js wrapper for integrating Salesforce CLI with AI coding assistants (Cursor, Continue, etc.) via Model Context Protocol.
 
-### 4. IDE Integration
+### 5. IDE Integration
 
 Settings and configurations optimized for Salesforce development in Code OSS-based editors.
 
 ---
 
-## Python Schema Scripts
+## Python Schema Scripts (`schemapy`)
 
 ### Location
 
-[`salesforce/scripts/`](../salesforce/scripts/)
+[`salesforce/scripts/schemapy/`](../salesforce/scripts/schemapy/)
+
+> **Encoding change.** Earlier versions of this pipeline emitted YAML. The output is now [TOON](https://github.com/toon-format/spec/blob/main/SPEC.md) (Token-Oriented Object Notation, v3.0). TOON is ~2-3× more token-efficient than YAML, which matters when feeding the schema into AI agents. All consumers (rules, skills, agent prompts) load `.toon` files. The single-`.yaml`-file fallback was removed.
+
+### The 12-step pipeline
+
+`auto_generate_schema.py` is the orchestrator — it walks all 12 steps end-to-end. Steps 1–9 are mandatory; steps 10–12 add usage-aware classification and the human-readable ER diagram and continue past failures (a warning is printed, but the per-object schema files from steps 1–9 are still usable on their own).
+
+| #     | Owned by                          | What it does                                                                                                                                                                          |
+| ----- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–6   | `auto_generate_schema.py`         | Detect default org, locate the `objects/` directory, query all sObjects, filter system objects (History/Share/Feed/ChangeEvent), diff against local metadata, retrieve what's missing |
+| 7     | `generate_sf_er_schema.py`        | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (combined intermediate)                                                                                   |
+| 8     | `split_schema_by_object.py`       | Shard the combined intermediate into per-object folders + a master index, a flat search index, and category groupings                                                                 |
+| 9     | `enrich_schema_with_picklists.py` | `sf sobject describe` per object — merge in picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId  |
+| 10    | `collect_usage_stats.py`          | Composite REST `composite/batch` queries (25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                             |
+| 11    | `detect_junctions.py`             | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high`/`medium`/`low`/`schema_only`) uses Step 10 counts |
+| 12    | `generate_er.py`                  | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                          |
+
+### Helper modules
+
+Three small private modules sit next to the pipeline scripts:
+
+- **`_toon_io.py`** — TOON dump/load + `find_project_root()` (walks up from the script's own location, so the pipeline is cwd-independent).
+- **`_sf_session.py`** — fetches access token / instance URL / API version once via `sf org display --verbose --json`, then issues SOQL queries via `composite/batch` (25 queries per HTTP call). Uses `certifi`'s CA bundle when available — stdlib's default trust store is empty on many Python installs.
+- **`_fields_tabular.py`** — emits per-object `fields.toon` in TOON's tabular form. Auto-computes a `reference_path` cell for Lookup / MasterDetail fields.
 
 ### Available Scripts
 
 #### 1. `auto_generate_schema.py` ⭐ **Main Orchestrator**
 
-**Purpose**: Fully automated Salesforce schema generation with 9 integrated steps.
-
-**What It Does**:
-
-1. Detects your default org from `.sf/config.json`
-2. Detects objects directory
-3. Queries org for all sObjects
-4. Filters objects (excludes History, Share, Feed, etc.)
-5. Checks existing local metadata
-6. Retrieves missing objects from Salesforce
-7. Generates complete ER schema YAML
-8. Splits schema into individual object files
-9. **Enriches schemas with picklist values & metadata**
-
-**Usage**:
-
 ```bash
-# Just run it - no inputs required!
-python3 salesforce/scripts/auto_generate_schema.py
+# Zero inputs required — auto-detects org from .sf/config.json
+python3 salesforce/scripts/schemapy/auto_generate_schema.py
 ```
 
-**Output**: Complete, enriched schema in `config/schema/` directory.
+**Output** (all under `config/`):
 
----
+- `salesforce-er-schema.toon` — combined intermediate (Step 7)
+- `schema/_index.toon` — master object index (Step 8)
+- `schema/_search_index.toon` — flat field search index (Step 8)
+- `schema/categories/*.toon` — objects grouped by category (Step 8)
+- `schema/objects/<Object>/{schema,picklists,formulas}.toon` — per-object enriched data (Steps 8 + 9)
+- `schema/_junctions.toon` — detected junction objects + parents (Step 11)
+- `../ER.md` (project root) — Mermaid ER diagram of every detected junction (Step 12)
 
-#### 2. `enrich_schema_with_picklists.py`
+#### 2. `enrich_schema_with_picklists.py` — Step 9
 
-**Purpose**: Enriches existing Salesforce schema YAML files with complete metadata from the org.
+Enriches per-object TOON files with `sf sobject describe` data.
 
-**What It Adds**:
+**What it adds**:
 
-- Picklist values (**ACTIVE ONLY** - inactive values excluded)
+- Picklist values (**ACTIVE ONLY** — inactive values excluded by design)
 - Formula definitions
 - Default values
 - Field constraints (required, unique, externalId)
 - Field length, precision, scale
-- Lookup relationships
+- Lookup relationships (with auto-computed `reference_path`)
 - Field dependencies (controlling/dependent picklists)
 
-**Usage**:
-
 ```bash
-# Enrich all objects (auto-detects org)
-python3 salesforce/scripts/enrich_schema_with_picklists.py
+# All objects (auto-detect org)
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py
 
-# Enrich specific objects
-python3 salesforce/scripts/enrich_schema_with_picklists.py --objects Account,Contact
+# Specific objects
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --objects Account,Contact
 
-# Dry run (preview changes)
-python3 salesforce/scripts/enrich_schema_with_picklists.py --dry-run
+# Dry run (preview changes; nothing written to disk)
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --dry-run
 
-# Specify org explicitly
-python3 salesforce/scripts/enrich_schema_with_picklists.py --org MyOrgAlias
+# Explicit org
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --org MyOrgAlias
 ```
 
----
+#### 3. `collect_usage_stats.py` — Step 10
 
-#### 3. `generate_sf_er_schema.py`
+For every queryable object, runs `composite/batch` aggregate queries against the org to gather per-picklist-value record counts + per-RecordType counts. Merges them back into `picklists.toon` (switches to tabular `{value,count}` form when usage data is available) and `schema.toon` (`record_types[]` gains a `record_count` column).
 
-**Purpose**: Generates Entity-Relationship schema in YAML format.
+```bash
+# All queryable objects
+python3 salesforce/scripts/schemapy/collect_usage_stats.py
 
-**Usage**: Typically called automatically by `auto_generate_schema.py`.
+# Specific objects only
+python3 salesforce/scripts/schemapy/collect_usage_stats.py --objects Account,Case
+```
 
----
+Skips `MultiselectPicklist` fields (cannot `GROUP BY` cleanly in SOQL), objects with no read access, and objects with zero records. A 670-object org runs in ~20-30 minutes (~10× faster than per-call CLI usage).
 
-#### 4. `split_schema_by_object.py`
+#### 4. `detect_junctions.py` — Step 11
 
-**Purpose**: Splits monolithic schema file into individual object files for AI agent consumption.
+Structurally identifies junction objects from the combined schema + record-count enrichment. Detection is purely structural — no IBX/Health-Cloud/Vlocity-specific name patterns — so it works in any org.
 
-**Usage**: Automatically called by `auto_generate_schema.py`.
+```bash
+# Default (with org counts)
+python3 salesforce/scripts/schemapy/detect_junctions.py
+
+# Schema-only (faster, lower-confidence classification)
+python3 salesforce/scripts/schemapy/detect_junctions.py --no-counts
+```
+
+Confidence tiers:
+
+- `high` — junction record count ≥ 50% of the larger parent's count
+- `medium` — junction populated but sparser than parents
+- `low` — junction object has zero records in this org
+- `schema_only` — `--no-counts` was used, or count fetch failed
+
+#### 5. `generate_er.py` — Step 12
+
+Pure offline (no SOQL, no `sf` calls). Reads `_junctions.toon` and emits a single `ER.md` at the project root with per-confidence-tier markdown tables and Mermaid `erDiagram` blocks. Mermaid rendering is skipped for tiers with > 80 junctions (the diagram becomes unreadable).
+
+```bash
+python3 salesforce/scripts/schemapy/generate_er.py
+```
+
+#### 6. `generate_sf_er_schema.py` — Step 7
+
+Parses Salesforce metadata XML files and emits the combined `config/salesforce-er-schema.toon` intermediate. Typically invoked by the orchestrator; run manually if you want only the intermediate without sharding.
+
+#### 7. `split_schema_by_object.py` — Step 8
+
+Shards the combined intermediate into per-object folders + master index + search index + category groupings under `config/schema/`. Typically invoked by the orchestrator.
 
 ---
 
@@ -126,77 +176,80 @@ python3 salesforce/scripts/enrich_schema_with_picklists.py --org MyOrgAlias
 
 #### Workflow 1: Generate Complete Schema (RECOMMENDED) ⭐
 
-**Scenario**: You want to generate or update your entire schema with all metadata.
-
 ```bash
-python3 salesforce/scripts/auto_generate_schema.py
+python3 salesforce/scripts/schemapy/auto_generate_schema.py
 ```
 
-This single command:
-
-1. Detects your org
-2. Retrieves all objects
-3. Generates complete schema
-4. Splits into individual files
-5. **Enriches with active picklist values automatically**
-
-**Result**: Complete, enriched schema in `config/schema/` directory.
-
----
+Runs all 12 steps end-to-end. Result: complete, enriched, count-aware schema in `config/schema/` plus `ER.md` at the project root.
 
 #### Workflow 2: Update Specific Objects Only
 
-**Scenario**: You've added new picklist values or fields for specific objects in the org.
-
 ```bash
 # Preview changes
-python3 salesforce/scripts/enrich_schema_with_picklists.py --objects HealthcareProviderNpi --dry-run
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --objects HealthcareProviderNpi --dry-run
 
-# Enrich specific objects
-python3 salesforce/scripts/enrich_schema_with_picklists.py --objects HealthcareProviderNpi,Account
+# Apply
+python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --objects HealthcareProviderNpi,Account
 
-# Review changes
-git diff config/schema/objects/HealthcareProviderNpi.yaml
-
-# Commit if satisfied
-git add config/schema/objects/HealthcareProviderNpi.yaml
-git commit -m "Updated picklist values for HealthcareProviderNpi"
+# Review + commit
+git diff config/schema/objects/HealthcareProviderNpi/
+git add config/schema/objects/HealthcareProviderNpi/
+git commit -m "Update HealthcareProviderNpi picklist values"
 ```
+
+#### Workflow 3: Refresh just the usage counts (skip describe)
+
+```bash
+python3 salesforce/scripts/schemapy/collect_usage_stats.py
+python3 salesforce/scripts/schemapy/detect_junctions.py
+python3 salesforce/scripts/schemapy/generate_er.py
+```
+
+Right combination when picklist definitions haven't changed but record volumes have moved enough that high/medium/low classification might drift.
+
+#### Workflow 4: Schema-only run (no SOQL — works offline)
+
+```bash
+python3 salesforce/scripts/schemapy/generate_sf_er_schema.py
+python3 salesforce/scripts/schemapy/split_schema_by_object.py
+python3 salesforce/scripts/schemapy/detect_junctions.py --no-counts
+python3 salesforce/scripts/schemapy/generate_er.py
+```
+
+Useful when you have local metadata but no org connection (e.g. CI without a sandbox).
 
 ---
 
 ### Output Format
 
-Enriched schema files follow this structure:
+Each object lands in its own folder:
 
-```yaml
-object:
-  api_name: HealthcareProviderNpi
-  type: Standard
-  fields:
-    - api_name: NpiType
-      type: Picklist
-      label: NPI Type
-      help_text: Identifies whether the NPI is for an individual or an organization.
-      picklist_values: # ✅ Added by enrichment
-        - Individual
-        - Organization
-        - Group
-      required: false # ✅ Added by enrichment
-    - api_name: AccountId
-      type: Lookup
-      reference_to: Account # ✅ Added by enrichment
-  validation_rules: []
-  record_types: []
 ```
+config/schema/objects/HealthcareProviderNpi/
+├── schema.toon       ← object header, fields[] (tabular), record_types[], validation_rules[]
+├── picklists.toon    ← one block per Picklist field; tabular {value,count} when Step 10 ran
+└── formulas.toon     ← one block per Formula field, including the formula expression
+```
+
+`fields.toon` is TOON-tabular (every row has the same set of columns; every cell is a primitive). Cells are stringified for uniform column types — consumers decode per the conventions documented inline as `metadata.cell_value_decoding`:
+
+| Cell             | Decode as                                                    |
+| ---------------- | ------------------------------------------------------------ |
+| empty string     | not present / null                                           |
+| `true` / `false` | bool                                                         |
+| decimal digits   | int                                                          |
+| `A\|B\|C`        | list of strings (polymorphic `reference_to` / `reference_path`) |
+| anything else    | string                                                       |
 
 ---
 
 ### Requirements
 
 - **Salesforce CLI**: `sf` command installed and authenticated
-- **Python**: 3.7+
-- **PyYAML**: `pip install pyyaml`
+- **Python**: 3.9+
+- **Python deps** (in [`requirements.txt`](../salesforce/scripts/schemapy/requirements.txt)):
+  - [`toon-format`](https://pypi.org/project/toon-format/) ≥ 0.9.0b1 (currently in beta — `--pre` required if installing manually)
+  - [`certifi`](https://pypi.org/project/certifi/) ≥ 2024.0.0 (CA bundle for the direct HTTPS calls in `collect_usage_stats.py`)
 
 **Installation**:
 
@@ -206,10 +259,11 @@ brew install sf  # macOS
 # OR download from: https://developer.salesforce.com/tools/sfdxcli
 
 # Install Python dependencies
-pip install pyyaml
+pip install -r salesforce/scripts/schemapy/requirements.txt
 
 # Authenticate to org
 sf org login web --alias MyOrg
+sf config set target-org=MyOrg
 ```
 
 ---
@@ -221,7 +275,7 @@ Comprehensive reference for Salesforce metadata extraction using SF CLI.
 #### Get Field Metadata (Picklists, Formulas, Types)
 
 ```bash
-# Method 1: Describe command (fastest, most complete)
+# Method 1: Describe command (fastest, most complete) — used by Step 9
 sf sobject describe --sobject Account --target-org MyOrg --json
 
 # Method 2: Query FieldDefinition
@@ -231,7 +285,7 @@ sf data query --query "SELECT QualifiedApiName, DataType, Label FROM FieldDefini
 **Output includes**:
 
 - Field names, types, labels
-- **Picklist values (active and inactive)**
+- **Picklist values (active and inactive)** — the pipeline filters to ACTIVE only on the way in
 - Formula definitions
 - Default values
 - Length, precision, scale
@@ -250,7 +304,91 @@ sf data query --query "SELECT ValidationName, Active, ErrorConditionFormula, Err
 sf data query --query "SELECT DeveloperName, Name, IsActive, Description FROM RecordType WHERE SobjectType = 'Account'" --target-org MyOrg --json
 ```
 
-For complete SF CLI command reference, see [`salesforce/scripts/README.md`](../salesforce/scripts/README.md).
+For the complete pipeline reference + per-script CLI flags, see [`salesforce/scripts/schemapy/README.md`](../salesforce/scripts/schemapy/README.md).
+
+---
+
+## AI-Agent Rules Bootstrap (`initagentrulespy`)
+
+### Location
+
+[`salesforce/scripts/initagentrulespy/`](../salesforce/scripts/initagentrulespy/)
+
+### What it does
+
+Self-contained Python kit (no third-party dependencies) that materializes a curated AI-agent rule / skill / doc / manifest / config set into any new Salesforce repo. The script auto-detects the target workspace's `target-org` alias, Java home, and PMD binary path, and substitutes those values into the generated files so they work out of the box on macOS, Linux, and Windows.
+
+### TL;DR for end users
+
+```bash
+# 1. Copy the entire scripts/initagentrulespy/ folder to your machine.
+#    (Fully self-contained — no need to clone the source repo.)
+
+# 2. From inside your new Salesforce repo, run:
+python3 /path/to/initagentrulespy/init.py
+# Writes ~44 files into the current directory and prints a summary.
+
+# 3. Open .cursor/rules/sf-cli-commands.mdc — the canonical entry point.
+```
+
+### What gets generated
+
+| Path                           | Count                                | What it is                                                                                                                                                                                                                                                            |
+| ------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.cursor/rules/`               | 10                                   | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                                                                          |
+| `.claude/skills/`              | 5 skills + `.claude/settings.json`   | Claude Code skills mirroring the rules. Excludes machine-local `settings.local.json`.                                                                                                                                                                                  |
+| `docs/`                        | 9                                    | Reference docs (OmniStudio guides, sf-retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                                                                       |
+| `changes/_templates/`          | 3                                    | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                                                               |
+| `.vscode/`                     | 1                                    | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` intentionally NOT generated — leave those to per-project preference.                                                                                                               |
+| `.mcp.json` + `.cursor/mcp.json` | 2 (same content)                   | MCP server config. Same content written to both paths so Claude Code (reads `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. Filesystem-MCP path is auto-set to your repo's absolute path.                                                |
+| `manifest/fullpackage/`        | 11                                   | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit).                                                                                                                                                                  |
+| `config/pmd-ruleset.xml`       | 1                                    | Sensible default Apex PMD ruleset. Tune thresholds for your project.                                                                                                                                                                                                   |
+
+### CLI reference
+
+```bash
+python3 init.py [target_dir] [options]
+
+Positional:
+  target_dir              Where to write (default: current working directory).
+
+Options:
+  --alias NAME            Override target-org detection.
+  --org-name NAME         Human-readable project / org name. Default: 'CURR ORG'.
+  --java-home PATH        Override Java JDK home detection.
+  --pmd-path PATH         Override PMD binary path detection.
+  --force                 Overwrite existing files (default: skip).
+  --dry-run               Print what would be written; do not touch the filesystem.
+  --no-prompt             Never prompt; fall back to sentinel placeholders.
+```
+
+### Placeholder substitution
+
+`templates/` ships with five `{{...}}` placeholder tokens. `init.py` replaces each of them with a runtime-detected (or CLI-supplied) value:
+
+| Placeholder         | Becomes                            | Detection chain                                                                                                          |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `{{ORG_ALIAS}}`     | Your `target-org` alias            | `.sf/config.json` → `.sfdx/sfdx-config.json` → `--alias` flag → interactive prompt → sentinel `<TARGET_ORG_ALIAS>`        |
+| `{{ORG_NAME}}`      | Human-readable project / org name  | `--org-name` CLI flag only (default `CURR ORG`)                                                                          |
+| `{{JAVA_HOME}}`     | Detected JDK home                  | `/usr/libexec/java_home -v 21\|17\|11` (macOS), `$JAVA_HOME`, `/usr/lib/jvm/java-*` glob (Linux), `where java` (Windows) |
+| `{{PMD_PATH}}`      | Absolute pmd binary path           | `shutil.which("pmd")`, then OS-specific install paths and `pmd-bin-*` glob, then `$PMD_HOME`                              |
+| `{{WORKSPACE_PATH}}`| Target dir absolute path           | `os.path.abspath(target_dir)`                                                                                            |
+
+If detection falls back to a sentinel, the script prints a warning at the end of the run with instructions on how to fix it.
+
+> **Why placeholders?** The kit is meant to be shared. Carrying real values like a specific sf alias, an absolute workspace path, or the source org's brand name through the templates would leak personal/org info into anything a colleague clones or zips.
+
+### Source-repo maintenance
+
+The kit also ships `_sync.py` — a maintainer-only helper that walks the source repo's actual rules / skills / docs / manifests / configs and copies them into `templates/`, running every file through a tokenization step that replaces source-repo-specific literals with the `{{...}}` placeholders.
+
+```bash
+python3 salesforce/scripts/initagentrulespy/_sync.py            # write changes
+python3 salesforce/scripts/initagentrulespy/_sync.py --check    # CI-friendly: exit 1 if drift
+python3 salesforce/scripts/initagentrulespy/_sync.py --verbose  # log every file (incl. unchanged)
+```
+
+For full maintainer details (`SOURCES` table, `_tokenize` rules, per-file transforms), see [`salesforce/scripts/initagentrulespy/README.md`](../salesforce/scripts/initagentrulespy/README.md).
 
 ---
 
@@ -864,14 +1002,15 @@ brew install sf  # macOS
 # OR: https://developer.salesforce.com/tools/sfdxcli
 
 # Install Python
-python3 --version  # Should be 3.7+
+python3 --version  # Should be 3.9+
 
-# Install dependencies
-pip install pyyaml
+# Install dependencies for the schemapy pipeline
+pip install -r salesforce/scripts/schemapy/requirements.txt
+# (initagentrulespy is stdlib-only — no pip install needed)
 
 # Authenticate to Salesforce
 sf org login web --alias DevOrg
-sf config set target-org DevOrg
+sf config set target-org=DevOrg
 ```
 
 ### PMD Rulesets
@@ -915,14 +1054,30 @@ sf org login web --alias MyOrg
 # 1. Clone/navigate to repo
 cd /path/to/configs
 
-# 2. Ensure Salesforce CLI is authenticated
+# 2. Install Python deps + ensure Salesforce CLI is authenticated
+pip install -r salesforce/scripts/schemapy/requirements.txt
 sf org list
 
-# 3. Run auto-generation
-python3 salesforce/scripts/auto_generate_schema.py
+# 3. Run the full 12-step pipeline
+python3 salesforce/scripts/schemapy/auto_generate_schema.py
 
 # 4. Check output
 ls config/schema/objects/
+ls config/schema/_junctions.toon
+cat ER.md | head -40
+```
+
+### For Bootstrapping AI-Agent Rules into a New Salesforce Repo
+
+```bash
+# From inside the new repo
+python3 /path/to/initagentrulespy/init.py
+
+# Preview first if you want
+python3 /path/to/initagentrulespy/init.py --dry-run
+
+# Overwrite existing files
+python3 /path/to/initagentrulespy/init.py --force
 ```
 
 ### For PMD Code Analysis
@@ -961,11 +1116,22 @@ sf scanner run --target "force-app/**/*.cls" \
 
 For comprehensive documentation on each component:
 
-- **Python Scripts**: See [`salesforce/scripts/README.md`](../salesforce/scripts/README.md)
+- **Schema Pipeline**: See [`salesforce/scripts/schemapy/README.md`](../salesforce/scripts/schemapy/README.md)
 
-  - Complete SF CLI command reference
+  - The full 12-step pipeline (Steps 1-12, helper modules, output shape)
+  - Per-script CLI flag reference
+  - TOON cell-decoding conventions
   - Troubleshooting guide
-  - Advanced workflows
+
+- **AI-Agent Rules Bootstrap**: See [`salesforce/scripts/initagentrulespy/README.md`](../salesforce/scripts/initagentrulespy/README.md)
+
+  - End-user TL;DR
+  - Maintainer guide (`_sync.py`, `SOURCES` table, `_tokenize` rules)
+  - Per-file transforms + how to add new files to the kit
+
+- **Scripts Index**: See [`salesforce/scripts/README.md`](../salesforce/scripts/README.md)
+
+  - Quick comparison of `schemapy` vs `initagentrulespy`
 
 - **PMD Rulesets**: See [`salesforce/pmd/README.md`](../salesforce/pmd/README.md)
 
@@ -998,13 +1164,45 @@ sf --version
 
 ```bash
 sf org login web --alias MyOrg
-sf config set target-org MyOrg
+sf config set target-org=MyOrg
 ```
 
-#### Error: "ModuleNotFoundError: No module named 'yaml'"
+#### Error: "toon-format module not found"
 
 ```bash
-pip install pyyaml
+pip install -r salesforce/scripts/schemapy/requirements.txt
+# OR install the beta directly
+pip install --pre toon-format
+```
+
+#### Error: SSL / `CERTIFICATE_VERIFY_FAILED` in Step 10
+
+```bash
+# stdlib's default trust store is empty on python.org macOS builds and
+# many venvs. _sf_session.py prefers certifi's bundled CA list when present.
+pip install certifi
+```
+
+#### Step 10 (`collect_usage_stats.py`) takes >30 minutes
+
+Expected on large orgs (600+ objects). `composite/batch` already batches up to 25 SOQL queries per HTTP call, but a full picklist-and-RecordType census still touches thousands of queries. Use `--objects` to scope to a smaller set.
+
+#### `_junctions.toon` shows everything as `schema_only`
+
+Step 10 was skipped or failed — re-run `collect_usage_stats.py` then `detect_junctions.py`. To intentionally skip count enrichment, pass `--no-counts` to `detect_junctions.py`.
+
+### AI-Agent Rules Bootstrap (`initagentrulespy`)
+
+#### "templates/ folder not found"
+
+You ran `init.py` without the sibling `templates/` folder. Either you copied just the `.py` file (copy the whole `initagentrulespy/` folder instead), or the source-repo maintainer hasn't run `_sync.py` yet.
+
+#### Sentinel `<TARGET_ORG_ALIAS>` / `<PMD_PATH>` / `<JAVA_HOME>` left in files
+
+The script couldn't auto-detect that value. Either install/configure the underlying tool and re-run with `--force`, or pass the value explicitly:
+
+```bash
+python3 init.py --alias MyOrg --pmd-path /absolute/path/to/pmd --java-home /absolute/path/to/jdk --force
 ```
 
 ### MCP Wrapper
@@ -1028,11 +1226,12 @@ pip install pyyaml
 
 ### Schema Management
 
-1. **Run auto-generation regularly** when org metadata changes
-2. **Use dry-run** before mass enrichment
-3. **Version control** schema files to track changes
-4. **Active values only** - script excludes inactive picklist values
-5. **Backup** original schemas before bulk operations
+1. **Run the orchestrator regularly** (`auto_generate_schema.py`) when org metadata changes
+2. **Use `--dry-run`** on `enrich_schema_with_picklists.py` before mass enrichment
+3. **Version control** the `config/schema/` tree + `ER.md` to track changes over time
+4. **Active values only** — pipeline intentionally excludes inactive picklist values
+5. **Refresh counts independently** — re-run steps 10-12 (`collect_usage_stats.py` → `detect_junctions.py` → `generate_er.py`) without doing a full describe pass when only record volumes have changed
+6. **Backup** original schemas before bulk operations
 
 ### PMD Code Analysis
 
@@ -1071,7 +1270,8 @@ Improvements welcome! Areas for contribution:
 - **Salesforce Code Analyzer**: [Extension Marketplace](https://marketplace.visualstudio.com/items?itemName=salesforce.sfdx-code-analyzer-vscode) | [CLI Plugin](https://forcedotcom.github.io/sfdx-scanner/)
 - **MCP Protocol**: [Model Context Protocol](https://modelcontextprotocol.io/)
 - **Salesforce MCP**: [@salesforce/mcp](https://www.npmjs.com/package/@salesforce/mcp)
-- **PyYAML**: [PyYAML Docs](https://pyyaml.org/wiki/PyYAMLDocumentation)
+- **TOON Spec**: [Token-Oriented Object Notation v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md) | [PyPI package](https://pypi.org/project/toon-format/)
+- **certifi**: [PyPI](https://pypi.org/project/certifi/)
 
 ---
 

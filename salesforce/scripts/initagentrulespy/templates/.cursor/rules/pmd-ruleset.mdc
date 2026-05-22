@@ -1,0 +1,331 @@
+---
+description: Apply to Apex classes (.cls files) for PMD static code analysis to check for code quality violations, complexity, and best practices.
+alwaysApply: false
+---
+# PMD Static Code Analysis Ruleset
+
+## 🚨 MANDATORY: Retrieve BEFORE analyzing/editing
+
+**Run PMD against the live org version, not a stale local copy.** Before linting or modifying any Apex, pull the current file from `{{ORG_ALIAS}}`:
+
+```bash
+sf project retrieve start --metadata ApexClass:<ClassName> -o {{ORG_ALIAS}}
+{{PMD_PATH}} check --dir force-app/main/default/classes/<ClassName>.cls -R config/pmd-ruleset.xml
+```
+
+Linting / "fixing" a stale file wastes effort when the org already has the fix — and deploying afterwards silently reverts the org's newer state.
+
+## ⚠️ CRITICAL WARNING - CODE QUALITY MANDATORY
+
+**NEVER SKIP PMD ANALYSIS BEFORE DEPLOYMENT. NO EXCEPTIONS.**
+
+### ❌ PROHIBITED Actions:
+- ❌ **NEVER** skip PMD checks before deploying Apex code
+- ❌ **NEVER** ignore PMD violations without justification
+- ❌ **NEVER** deploy code with high complexity or long methods
+- ❌ **NEVER** commit code without running PMD analysis first
+
+### ⚠️ Consequences:
+- Unmaintainable code accumulates
+- High technical debt and refactoring costs
+- Difficult to debug and troubleshoot
+- Increased defect rates
+
+---
+## 🎯 Golden Rule
+
+**PMD analysis first, deployment second. ALWAYS. ✅**
+
+```bash
+# ALWAYS run PMD before deploying:
+{{PMD_PATH}} check --dir force-app/main/default/classes/YourClass.cls -R config/pmd-ruleset.xml
+# Fix ALL violations
+# THEN deploy
+```
+
+Applies to:
+- ✅ New Apex classes
+- ✅ Modified Apex classes
+- ✅ Test classes
+- ✅ Triggers
+- ✅ Batch classes
+
+---
+## PMD Check Command
+
+```bash
+# Check single class
+{{PMD_PATH}} check --dir force-app/main/default/classes/AccountService.cls -R config/pmd-ruleset.xml
+# Check entire directory
+{{PMD_PATH}} check --dir force-app/main/default/classes/ -R config/pmd-ruleset.xml
+```
+
+---
+## Common PMD Violations
+
+| Violation | Issue | Fix |
+|-----------|-------|-----|
+| **ExcessiveMethodLength** | Method >100 lines | Extract logic into helper methods |
+| **CyclomaticComplexity** | Too many decision points | Simplify conditionals, extract methods |
+| **ExcessiveClassLength** | Class >1000 lines | Split into helper classes |
+| **TooManyPublicMethods** | Too many public methods | Make private or extract to helper |
+| **AvoidDeeplyNestedIfStmts** | Nested if >3 levels | Use guard clauses, extract methods |
+| **UnusedLocalVariable** | Variable declared, never used | Remove unused variables |
+
+---
+## Refactoring Strategy
+
+### Step 1: Identify Violations
+```bash
+{{PMD_PATH}} check --dir force-app/main/default/classes/OpportunityService.cls -R config/pmd-ruleset.xml
+```
+
+**Example output:**
+```
+OpportunityService.cls:45: ExcessiveMethodLength: Method 'processOpportunities' has 150 lines
+OpportunityService.cls:45: CyclomaticComplexity: Method has complexity of 25
+```
+
+### Step 2: Create Helper Class
+
+**Before (❌ 150 lines, high complexity):**
+```apex
+public class OpportunityService {
+    public void processOpportunities(List<Opportunity> opps) {
+        // 150 lines: validation, field population, related records, notifications
+    }
+}
+```
+
+**After (✅ Clean, maintainable):**
+```apex
+// Main class - orchestration only
+public class OpportunityService {
+    public void processOpportunities(List<Opportunity> opps) {
+        for (Opportunity opp : opps) {
+            OpportunityServiceHelper.validateOpportunity(opp);
+            OpportunityServiceHelper.populateFields(opp);
+            OpportunityServiceHelper.createRelatedRecords(opp);
+            OpportunityServiceHelper.sendNotification(opp);
+        }
+    }
+}
+
+// Helper class - reusable logic
+public class OpportunityServiceHelper {
+    public static void validateOpportunity(Opportunity opp) { /* logic */ }
+    public static void populateFields(Opportunity opp) { /* logic */ }
+    public static void createRelatedRecords(Opportunity opp) { /* logic */ }
+    public static void sendNotification(Opportunity opp) { /* logic */ }
+}
+```
+
+### Step 3: Fix Common Violations
+
+**Remove unused variables:**
+```apex
+// ❌ WRONG
+public void processCase(Case c) {
+    String tempValue = 'test';  // Never used
+    c.Status = 'Working';
+}
+
+// ✅ CORRECT
+public void processCase(Case c) {
+    c.Status = 'Working';
+}
+```
+
+**Simplify nested conditionals:**
+```apex
+// ❌ WRONG - Deeply nested
+public Boolean isValidLead(Lead l) {
+    if (l != null) {
+        if (String.isNotBlank(l.Email)) {
+            if (String.isNotBlank(l.Company)) {
+                if (l.Status == 'Open') {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// ✅ CORRECT - Guard clauses
+public Boolean isValidLead(Lead l) {
+    if (l == null) return false;
+    if (String.isBlank(l.Email)) return false;
+    if (String.isBlank(l.Company)) return false;
+    if (l.Status != 'Open') return false;
+    return true;
+}
+```
+
+**Reduce cyclomatic complexity:**
+```apex
+// ❌ WRONG - High complexity
+public String getCaseCategory(Case c) {
+    if (c.Type == 'Technical' && c.Priority == 'High') {
+        return 'Technical-High';
+    } else if (c.Type == 'Technical' && c.Priority == 'Medium') {
+        return 'Technical-Medium';
+    }
+    // ... many more conditions
+}
+
+// ✅ CORRECT - Lookup map
+public String getCaseCategory(Case c) {
+    Map<String, String> categoryMap = new Map<String, String>{
+        'Technical-High' => 'Technical-High',
+        'Technical-Medium' => 'Technical-Medium',
+        'Billing-High' => 'Billing-High'
+    };
+    return categoryMap.get(c.Type + '-' + c.Priority);
+}
+```
+
+### Step 4: Rerun PMD
+```bash
+{{PMD_PATH}} check --dir force-app/main/default/classes/OpportunityService.cls -R config/pmd-ruleset.xml
+```
+✅ No violations found - ready to deploy
+
+---
+## Complete Example: Refactoring Contact Management
+
+### Initial PMD Report
+```bash
+{{PMD_PATH}} check --dir force-app/main/default/classes/ContactManager.cls -R config/pmd-ruleset.xml
+```
+
+**Violations:**
+```
+ContactManager.cls:25: ExcessiveMethodLength: 120 lines
+ContactManager.cls:25: CyclomaticComplexity: 18
+ContactManager.cls:15: UnusedLocalVariable: 'counter'
+```
+
+### Refactored Solution
+
+**Before (❌ 120 lines in one method):**
+```apex
+public class ContactManager {
+    public void updateContactData(List<Contact> contacts) {
+        Integer counter = 0;  // ❌ Unused
+        // Email validation (25 lines)
+        // Phone formatting (20 lines)
+        // Address standardization (30 lines)
+        // Account relationship (25 lines)
+        // Task creation (20 lines)
+    }
+}
+```
+
+**After (✅ Clean, modular):**
+```apex
+public class ContactManager {
+    public void updateContactData(List<Contact> contacts) {
+        for (Contact c : contacts) {
+            ContactManagerHelper.validateEmail(c);
+            ContactManagerHelper.formatPhone(c);
+            ContactManagerHelper.standardizeAddress(c);
+            ContactManagerHelper.linkToAccount(c);
+        }
+        update contacts;
+        ContactManagerHelper.createFollowUpTasks(contacts);
+    }
+}
+
+public class ContactManagerHelper {
+    public static void validateEmail(Contact c) { /* logic */ }
+    public static void formatPhone(Contact c) { /* logic */ }
+    public static void standardizeAddress(Contact c) { /* logic */ }
+    public static void linkToAccount(Contact c) { /* logic */ }
+    public static void createFollowUpTasks(List<Contact> contacts) { /* logic */ }
+}
+```
+
+### Verify Clean
+```bash
+{{PMD_PATH}} check --dir force-app/main/default/classes/ContactManager.cls -R config/pmd-ruleset.xml
+```
+✅ No violations - ready to deploy
+
+---
+## Best Practices
+
+| Practice | Target | Maximum |
+|----------|--------|---------|
+| **Method length** | <50 lines | 100 lines |
+| **Cyclomatic complexity** | <10 | 15 |
+| **Class length** | <500 lines | 1000 lines |
+| **Public methods per class** | <10 | 20 |
+
+**Additional Guidelines:**
+- Run PMD before every commit
+- Use guard clauses and early returns
+- Extract logic to private methods
+- Follow Single Responsibility Principle
+- Use meaningful, descriptive names
+- Avoid single-letter variables (except loop counters)
+
+---
+## Common Helper Class Patterns
+
+### Pattern 1: Validation Helper
+```apex
+public class AccountValidationHelper {
+    public static Boolean isValidAccount(Account acc) { /* logic */ }
+    public static String validateRequiredFields(Account acc) { /* logic */ }
+}
+```
+
+### Pattern 2: Field Population Helper
+```apex
+public class OpportunityFieldHelper {
+    public static void populateDefaults(Opportunity opp) { /* logic */ }
+    public static void calculateAmounts(Opportunity opp) { /* logic */ }
+}
+```
+
+### Pattern 3: Query Helper
+```apex
+public class LeadQueryHelper {
+    public static List<Lead> getLeadsByStatus(String status) { /* logic */ }
+    public static Map<Id, Lead> getLeadsWithCampaigns(Set<Id> leadIds) { /* logic */ }
+}
+```
+
+---
+## Enforcement
+
+**ZERO TOLERANCE for violations.**
+
+**Before deploying ANY Apex code:**
+1. ✅ Run PMD analysis
+2. ✅ Fix ALL violations
+3. ✅ Verify clean PMD report
+4. ✅ Deploy code
+
+**No exceptions. No shortcuts.**
+
+---
+## Quick Reference
+
+```bash
+# Run PMD on single class
+{{PMD_PATH}} check --dir force-app/main/default/classes/YourClass.cls -R config/pmd-ruleset.xml
+
+# Run PMD on directory
+{{PMD_PATH}} check --dir force-app/main/default/classes/ -R config/pmd-ruleset.xml
+
+# Fix violations:
+# 1. Extract long methods → Helper classes
+# 2. Simplify complexity → Guard clauses, maps
+# 3. Remove unused code → Delete variables
+# 4. Rerun PMD → Verify clean
+```
+
+**Remember:** Clean code is maintainable code. PMD helps enforce quality standards.
+---

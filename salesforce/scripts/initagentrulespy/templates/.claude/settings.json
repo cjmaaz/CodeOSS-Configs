@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sf data query *)",
+      "Bash(sf apex get log *)",
+      "Bash(sf apex list log *)",
+      "Bash(sf apex get *)",
+      "Bash(sf apex list *)",
+      "Bash(sf project retrieve *)",
+      "Bash(sf sobject describe *)",
+      "Bash(sf org display *)",
+      "Bash(sf org list *)",
+      "Bash(sf commands --json)",
+      "Bash(sf config get *)",
+      "mcp__salesforce__run_soql_query"
+    ]
+  }
+}

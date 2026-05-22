@@ -1,0 +1,839 @@
+---
+description: Apply to Python files that use Selenium for browser automation and web element interactions.
+alwaysApply: false
+---
+# Python Selenium Web Automation Ruleset
+
+**TL;DR**: Production-ready Selenium patterns for browser automation with fail-fast architecture, 3-retry logic per field, comprehensive XPath logging, and zero silent failures.
+
+**Description**: Enforces fail-safe patterns, retry logic, comprehensive XPath logging, and robust error handling for Python files performing Selenium WebDriver browser automation with form filling, dropdown interactions, and dynamic element handling.
+
+**Quick Check**: Apply if file imports `selenium.webdriver` AND contains `driver.find_element` or `WebDriverWait` patterns.
+
+**Key Enforcements**: 3-retry logic • XPath logging • Fail-fast on errors • Explicit waits • Dependency verification • JavaScript for masked inputs
+
+---
+
+## 🎯 When to Apply This Ruleset
+
+### Automatic Application Triggers
+
+Apply these rules when a Python file meets **ANY** of the following criteria:
+
+#### 1. Import Patterns (Most Reliable)
+File contains imports from:
+```python
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import *
+```
+
+#### 2. File Patterns
+- Files in directories: `*/automation/*`, `*/selenium/*`, `*/auto/*`, `*/tests/e2e/*`, `*/scripts/auto/*`
+- Files matching: `*_automation.py`, `*_selenium.py`, `test_*.py` (with selenium imports), `*_e2e.py`
+
+#### 3. Code Patterns
+File contains multiple occurrences of:
+- `driver.find_element(By.XPATH, ...)`
+- `WebDriverWait(driver, ...)`
+- `EC.presence_of_element_located`
+- `EC.element_to_be_clickable`
+- XPath strings (e.g., `//div[@class='...']`)
+- Form interaction patterns: `send_keys()`, `clear()`, `click()`
+
+#### 4. Function Signatures
+File contains functions like:
+- `def fill_*_field(driver, ...)`
+- `def click_*(driver, ...)`
+- `def wait_for_*(driver, ...)`
+- `def *_automation(driver, ...)`
+
+### Do NOT Apply When
+- File is just importing selenium for testing purposes without actual browser automation
+- File is a configuration/setup file (e.g., `conftest.py`, `config.py`)
+- File only contains WebDriver setup/teardown without field interactions
+- File is using selenium-wire, appium, or other selenium variants (different patterns needed)
+
+### Manual Override
+To explicitly enable/disable these rules, add a comment at the top of the file:
+```python
+# selenium-automation: enabled
+# or
+# selenium-automation: disabled
+```
+
+---
+
+## 📋 What This Ruleset Enforces
+
+When this ruleset is active, Cursor will enforce:
+
+1. ✅ **3-Retry Logic** - Every field interaction must retry 3 times before failing
+2. ✅ **XPath Logging** - Log XPath before every element interaction for debugging
+3. ✅ **Fail-Fast on Critical Failures** - Stop automation immediately when fields fail after retries
+4. ✅ **Exception Propagation** - No silent failures; let exceptions stop execution
+5. ✅ **Explicit Waits** - Use `WebDriverWait` with `EC` conditions, not `time.sleep()` for elements
+6. ✅ **Spinner Handling** - Wait for loading indicators before interactions
+7. ✅ **Field Verification** - Verify values after filling critical fields
+8. ✅ **Dependency Checks** - Verify prerequisite fields before dependent fields
+9. ✅ **JavaScript for Masked Inputs** - Use JavaScript for phone/SSN/credit card fields
+10. ✅ **Centralized XPath Templates** - Store XPaths in dictionaries, use `.replace()` for dynamic generation
+11. ✅ **Visual Logging** - Use ✓, ❌, →, ⚠️ for consistent log output
+12. ✅ **Element Re-finding** - Re-find elements in retry loops to avoid stale references
+
+---
+
+## Core Principles
+
+### 1. Fail-Fast Architecture
+- **Stop immediately** on critical field failures after all retry attempts are exhausted
+- **Raise exceptions** with detailed context (XPath, value, error type) to halt automation
+- **No silent failures**: Every exception must either be logged and retried, or raised to stop execution
+- **Actionable debugging**: Provide exact XPath in exception message for browser testing
+
+**Pattern:**
+```python
+if not field_filled:
+    print(f"❌ FAILED to fill {field_name} after {max_retries} attempts")
+    print(f"❌ STOPPING AUTOMATION - {field_name} is required!")
+    print(f"❌ Copy this XPath to test in browser:")
+    print(f"❌ {xpath}")
+    raise Exception(f"{field_name} '{value}' failed after {max_retries} attempts. XPATH: {xpath}")
+```
+
+### 2. Granular Retry Logic
+- **Every field** must have exactly 3 retry attempts
+- **Each attempt** is logged with attempt number (1/3, 2/3, 3/3)
+- **Delay between retries**: 2 seconds (configurable)
+- **Retry at field level**: Do not retry entire sections, only the failing field
+- **After all retries fail**: Stop automation with detailed error
+
+**Pattern:**
+```python
+field_filled = False
+max_retries = 3
+field_xpath = None
+
+for attempt in range(1, max_retries + 1):
+    try:
+        if attempt > 1:
+            print(f"   → {field_name} retry attempt {attempt}/{max_retries}...")
+        
+        # Attempt field interaction
+        field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, field_xpath))
+        )
+        field.send_keys(value)
+        field_filled = True
+        break
+        
+    except Exception as e:
+        print(f"   ❌ {field_name} attempt {attempt} FAILED")
+        print(f"   ❌ Error: {type(e).__name__}: {e}")
+        print(f"   ❌ XPath: {field_xpath}")
+        if attempt < max_retries:
+            time.sleep(2)
+        continue
+
+if not field_filled:
+    raise Exception(f"{field_name} failed after {max_retries} attempts. XPATH: {field_xpath}")
+```
+
+### 3. Comprehensive XPath Logging
+- **Log XPath** before every element interaction
+- **Include XPath** in all error messages
+- **Visual indicators**: Use ✓ (success), ❌ (failure), → (action), ⚠️ (warning)
+- **Detailed error context**: Log error type, message, XPath, and value being filled
+
+**Pattern:**
+```python
+print(f"   → Filling {field_name}...")
+print(f"   → {field_name} XPath: {xpath}")
+
+try:
+    field = driver.find_element(By.XPATH, xpath)
+    field.send_keys(value)
+    print(f"   ✓ {field_name}: {value}")
+except Exception as e:
+    print(f"   ❌ {field_name} FAILED")
+    print(f"   ❌ Error: {type(e).__name__}: {e}")
+    print(f"   ❌ XPath: {xpath}")
+    print(f"   ❌ Value: {value}")
+    raise
+```
+
+---
+
+## XPath Management
+
+### 1. Centralized XPath Templates
+- Store all XPaths in a **centralized dictionary** (e.g., `XPATH_TEMPLATES`)
+- Use **template strings** with placeholders for dynamic elements (e.g., `{index}`, `{vendor_id}`)
+- **Document** what each index/placeholder represents
+- **Version control**: Keep XPath templates in one place for easy updates when UI changes
+
+**Pattern:**
+```python
+XPATH_TEMPLATES = {
+    'field_name': {
+        'v1': '//path/to/element[1]/input',  # First variant (e.g., section 1)
+        'template': '//path/to/element[{index}]/input'  # Dynamic variant
+    },
+    'dropdown': {
+        'input_v1': '//path/to/dropdown[1]/input',
+        'option_v1': '//path/to/dropdown[1]/option[{option_index}]',
+        'input_template': '//path/to/dropdown[{section_index}]/input',
+        'option_template': '//path/to/dropdown[{section_index}]/option[{option_index}]'
+    }
+}
+```
+
+### 2. Dynamic XPath Generation
+- Use **`.replace()`** instead of **`.format()`** when multiple placeholders exist
+- **Why**: `.format()` requires ALL placeholders to be provided; `.replace()` only affects specific ones
+- **Generate XPaths** at runtime based on section/index/context
+
+**Pattern:**
+```python
+def get_dynamic_xpath(xpath_key, is_first, section_index, suffix=''):
+    # Determine lookup key
+    if is_first:
+        lookup_key = f'{suffix}_v1' if suffix else 'v1'
+    else:
+        lookup_key = f'{suffix}_template' if suffix else 'template'
+    
+    # Get base XPath
+    base_xpath = XPATH_TEMPLATES[xpath_key][lookup_key]
+    
+    # Replace placeholders one at a time (preserve others)
+    if not is_first and '{section_index}' in base_xpath:
+        base_xpath = base_xpath.replace('{section_index}', str(section_index))
+    
+    # Additional dynamic modifications
+    if section_index >= 2:
+        base_xpath = base_xpath.replace('/element/', f'/element[{section_index}]/')
+    
+    return base_xpath
+```
+
+---
+
+## Field Interaction Patterns
+
+### 1. Text Input Fields
+**Always**: Clear → Wait → Send Keys → Wait → Verify
+
+```python
+field = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.XPATH, xpath))
+)
+field.clear()
+time.sleep(0.2)  # UI stabilization
+field.send_keys(value)
+time.sleep(0.3)  # Value registration
+
+# Optional but recommended: Verify
+actual_value = field.get_attribute('value')
+if actual_value != value:
+    raise Exception(f"Verification failed. Expected: {value}, Got: {actual_value}")
+```
+
+### 2. Dropdown/Select Fields
+**Two-Step Wait**: 1) Presence in DOM, 2) Clickable
+
+```python
+# Step 1: Open dropdown
+dropdown_input = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.XPATH, input_xpath))
+)
+dropdown_input.click()
+time.sleep(0.5)
+
+# Step 2: Wait for option in DOM
+dropdown_option = WebDriverWait(driver, 15).until(
+    EC.presence_of_element_located((By.XPATH, option_xpath))
+)
+
+# Step 3: Wait for option to be clickable
+dropdown_option = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.XPATH, option_xpath))
+)
+dropdown_option.click()
+time.sleep(0.5)
+
+# Verify selection
+selected_value = driver.find_element(By.XPATH, input_xpath).get_attribute('value')
+if not selected_value:
+    raise Exception("Dropdown value is blank after selection")
+```
+
+### 3. Masked Input Fields (Phone, SSN, Credit Card)
+**Use JavaScript** to bypass input masking
+
+```python
+# Get field
+masked_field = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.XPATH, xpath))
+)
+
+# Set via JavaScript (bypasses masking)
+driver.execute_script("arguments[0].value = arguments[1];", masked_field, formatted_value)
+time.sleep(0.3)
+
+# Trigger input/change events
+driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", masked_field)
+driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", masked_field)
+time.sleep(0.3)
+
+# Tab/Shift+Tab pattern (triggers framework validation)
+masked_field.send_keys(Keys.TAB)
+time.sleep(0.3)
+driver.switch_to.active_element.send_keys(Keys.SHIFT + Keys.TAB)
+time.sleep(0.5)
+
+# Verify
+actual_value = masked_field.get_attribute('value')
+if actual_value != formatted_value:
+    raise Exception(f"Verification failed. Expected: {formatted_value}, Got: {actual_value}")
+```
+
+### 4. Radio Buttons
+**Multiple Fallback Approaches**: Try input → label → label span → parent div
+
+```python
+def click_radio_with_fallback(driver, xpaths_dict, field_name):
+    """
+    xpaths_dict should contain: 'input', 'label', 'label_span', 'parent_div'
+    """
+    approaches = [
+        ('input', 'Input element'),
+        ('label', 'Label element'),
+        ('label_span', 'Label span element'),
+        ('parent_div', 'Parent container')
+    ]
+    
+    for key, description in approaches:
+        try:
+            element = WebDriverWait(driver, 8).until(
+                EC.element_to_be_clickable((By.XPATH, xpaths_dict[key]))
+            )
+            element.click()
+            time.sleep(0.5)
+            print(f"✓ {field_name} selected (via {description})")
+            return True
+        except Exception as e:
+            print(f"⚠️ {description} failed, trying next...")
+            continue
+    
+    return False
+```
+
+---
+
+## Wait Strategies
+
+### 1. Explicit Waits (Always Prefer Over Implicit)
+```python
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# Standard wait for presence
+element = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.XPATH, xpath))
+)
+
+# Wait for clickability (interactive state)
+element = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.XPATH, xpath))
+)
+
+# Wait for invisibility (spinners, overlays)
+WebDriverWait(driver, 30).until(
+    EC.invisibility_of_element_located((By.XPATH, spinner_xpath))
+)
+```
+
+### 2. Spinner/Loading Indicator Handling
+**Always wait** for spinners to disappear before field interactions
+
+```python
+def wait_for_spinners(driver, timeout=30):
+    """Wait for loading spinners to disappear."""
+    spinner_xpaths = [
+        "//div[@class='spinner']",
+        "//div[@class='loading']",
+        # Add framework-specific spinner XPaths
+    ]
+    
+    spinner_found = False
+    
+    # Check if any spinner exists
+    for xpath in spinner_xpaths:
+        try:
+            WebDriverWait(driver, 2).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
+            )
+            spinner_found = True
+            break
+        except:
+            continue
+    
+    if not spinner_found:
+        return  # No spinner, continue
+    
+    # Wait for all spinners to disappear
+    for xpath in spinner_xpaths:
+        try:
+            WebDriverWait(driver, timeout).until(
+                EC.invisibility_of_element_located((By.XPATH, xpath))
+            )
+        except:
+            pass
+    
+    time.sleep(1)  # Buffer for UI stabilization
+```
+
+### 3. Buffer Waits
+- **0.2-0.3s** after `clear()` before `send_keys()`
+- **0.3-0.5s** after `send_keys()` for value registration
+- **0.5s** after dropdown selection
+- **1s** after spinner disappears for UI stabilization
+
+---
+
+## Dependency Management
+
+### Field Dependencies (Critical)
+**Problem**: Some fields only appear/populate if prerequisite fields are filled.
+
+**Solution**: Verify prerequisite field before attempting dependent field.
+
+**Pattern: State → County Dependency**
+```python
+# Before filling County, verify State is filled
+for county_attempt in range(1, max_retries + 1):
+    try:
+        # CRITICAL: Check prerequisite
+        state_value = driver.find_element(By.XPATH, state_xpath).get_attribute('value')
+        
+        if not state_value or 'expected_value' not in state_value.lower():
+            print(f"⚠️ Prerequisite field is blank, refilling...")
+            
+            # Refill prerequisite
+            state_input = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, state_xpath))
+            )
+            state_input.click()
+            # ... refill state
+            
+            # Verify prerequisite again
+            state_value = driver.find_element(By.XPATH, state_xpath).get_attribute('value')
+            if not state_value:
+                raise Exception("Prerequisite still blank after refill")
+            
+            print(f"✓ Prerequisite refilled and verified")
+        else:
+            print(f"✓ Prerequisite verified: {state_value}")
+        
+        # NOW attempt dependent field (prerequisite is guaranteed)
+        county_input = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, county_xpath))
+        )
+        county_input.click()
+        # ... fill county
+        
+    except Exception as e:
+        # Log and retry
+        if county_attempt < max_retries:
+            time.sleep(2)
+            continue
+```
+
+---
+
+## Exception Handling
+
+### 1. No Try/Except Wrappers Around Functions
+**Allow exceptions to propagate** to stop automation at the appropriate level.
+
+```python
+# ❌ WRONG: Catches and hides errors
+def fill_form_section(driver, data):
+    try:
+        fill_field_1(driver, data)
+        fill_field_2(driver, data)
+        # ... more fields
+        return True
+    except Exception as e:
+        print(f"Error: {e}")
+        return False  # ← Silent failure, automation continues
+
+# ✅ CORRECT: Let exceptions propagate
+def fill_form_section(driver, data):
+    # No try/except wrapper
+    fill_field_1(driver, data)  # Will raise if fails after retries
+    fill_field_2(driver, data)  # Will raise if fails after retries
+    # ... more fields
+    # No return needed - exception stops flow if any field fails
+```
+
+### 2. Exception Context
+**Always include** in exception messages:
+- Field name
+- XPath used
+- Value attempted (if applicable)
+- Error type and message
+
+```python
+raise Exception(
+    f"{field_name} '{value}' failed to fill after {max_retries} attempts. "
+    f"Error: {type(error).__name__}: {error}. "
+    f"XPATH: {xpath}"
+)
+```
+
+---
+
+## Verification Patterns
+
+### 1. Post-Fill Verification
+**Always verify** field value after filling (optional but highly recommended).
+
+```python
+field.send_keys(value)
+time.sleep(0.3)
+
+# Verify
+actual_value = field.get_attribute('value')
+if actual_value != value:
+    raise Exception(f"Verification failed. Expected: {value}, Got: {actual_value}")
+```
+
+### 2. Dropdown Verification
+**Check dropdown value** after selection to ensure it was populated.
+
+```python
+dropdown_option.click()
+time.sleep(0.5)
+
+# Verify selection
+selected_value = driver.find_element(By.XPATH, input_xpath).get_attribute('value')
+if not selected_value or len(selected_value) == 0:
+    raise Exception(f"Dropdown value is blank after selection")
+```
+
+---
+
+## Logging Standards
+
+### 1. Console Output Structure
+```python
+# Action
+print(f"   → Filling {field_name}...")
+
+# XPath (for debugging)
+print(f"   → {field_name} XPath: {xpath}")
+
+# Success
+print(f"   ✓ {field_name}: {value}")
+
+# Retry
+print(f"   → {field_name} retry attempt {attempt}/{max_retries}...")
+
+# Failure
+print(f"   ❌ {field_name} attempt {attempt} FAILED")
+print(f"   ❌ Error: {type(error).__name__}: {error}")
+print(f"   ❌ XPath: {xpath}")
+print(f"   ❌ Value: {value}")
+
+# Warning
+print(f"   ⚠️ Warning: {message}")
+```
+
+### 2. Visual Indicators (Consistency)
+- ✓ = Success
+- ❌ = Failure/Error
+- → = Action/Progress
+- ⚠️ = Warning
+- 🔍 = Debug/Validation
+- ℹ️ = Information
+
+### 3. Error Logging Detail
+Include **all** of the following in error logs:
+1. Field name
+2. Attempt number
+3. Error type (`type(e).__name__`)
+4. Error message (`str(e)`)
+5. XPath used
+6. Value attempted
+7. Current retry count
+
+---
+
+## Code Organization
+
+### 1. Function Decomposition
+**Break down** complex operations into focused helper functions:
+
+```python
+# Main function
+def fill_complex_form(driver, data):
+    _fill_text_fields(driver, data)
+    _fill_dropdowns(driver, data)
+    _fill_conditional_fields(driver, data)
+    _click_submit_button(driver)
+
+# Helper functions (focused, single responsibility)
+def _fill_text_fields(driver, data):
+    # Only handles text fields
+    pass
+
+def _fill_dropdowns(driver, data):
+    # Only handles dropdowns
+    pass
+
+def _fill_conditional_fields(driver, data):
+    # Only handles fields with dependencies
+    pass
+```
+
+### 2. Helper Function Naming
+- **Public functions**: `fill_form()`, `click_button()`
+- **Private helpers**: `_parse_data()`, `_verify_field()`, `_wait_for_spinner()`
+- Use `_` prefix for internal/helper functions
+
+### 3. Constants and Configuration
+Store at module level:
+```python
+# At top of file
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+DEFAULT_TIMEOUT = 10  # seconds
+DROPDOWN_TIMEOUT = 15  # seconds (longer for dynamic options)
+
+XPATH_TEMPLATES = {
+    # All XPaths here
+}
+```
+
+---
+
+## Data Validation
+
+### 1. Pre-Automation Validation
+**Validate all data** before starting automation:
+
+```python
+def validate_data(data):
+    """
+    Validate data before automation starts.
+    Raises ValueError if validation fails.
+    """
+    errors = []
+    
+    # Check required fields
+    if not data.get('required_field'):
+        errors.append("Missing required field")
+    
+    # Check format
+    if not is_valid_format(data.get('field')):
+        errors.append("Invalid format for field")
+    
+    # Check for duplicates
+    if has_duplicates(data.get('items')):
+        errors.append("Duplicate items found")
+    
+    if errors:
+        raise ValueError(f"Data validation failed:\n" + "\n".join(errors))
+    
+    return True
+```
+
+### 2. Parsing with Error Handling
+**Always handle** parsing errors gracefully:
+
+```python
+def parse_complex_field(value_string):
+    """
+    Parse complex string into components.
+    Returns None if parsing fails (prevents bad data).
+    """
+    try:
+        # Parsing logic
+        components = extract_components(value_string)
+        
+        # Validate components
+        if not all_components_valid(components):
+            raise ValueError("Invalid components")
+        
+        return components
+        
+    except Exception as e:
+        print(f"⚠️ CRITICAL: Error parsing '{value_string}': {e}")
+        print(f"⚠️ This field will be SKIPPED to prevent bad data")
+        return None
+```
+
+---
+
+## Performance Considerations
+
+### 1. Wait Timeouts
+- **Standard fields**: 10 seconds
+- **Dropdowns**: 15 seconds (options may load asynchronously)
+- **Spinners**: 30 seconds (complex operations)
+- **Rare operations**: 60 seconds (only when absolutely necessary)
+
+### 2. Sleep Durations
+- **UI stabilization**: 0.2-0.3s
+- **Value registration**: 0.3-0.5s
+- **After dropdown**: 0.5s
+- **Retry delay**: 2s
+- **After spinner**: 1s buffer
+
+### 3. Element Re-Finding
+**Always re-find element** in retry loops to avoid stale element references:
+
+```python
+for attempt in range(1, max_retries + 1):
+    try:
+        # Re-find element on each attempt (don't reuse variable)
+        field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, xpath))
+        )
+        field.send_keys(value)
+        break
+    except StaleElementReferenceException:
+        if attempt < max_retries:
+            time.sleep(1)
+            continue
+```
+
+---
+
+## Testing and Debugging
+
+### 1. XPath Testing in Browser
+**Always test XPaths** in browser console during development:
+
+```javascript
+// In browser DevTools console
+$x('//path/to/element')
+
+// Returns:
+// [] = Element not found
+// [<element>] = Element found
+```
+
+### 2. XPath Validation Function
+```python
+def validate_xpath(driver, xpath, field_name, timeout=10):
+    """Validate an XPath before using it."""
+    try:
+        element = WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.XPATH, xpath))
+        )
+        print(f"✓ XPath valid for {field_name}")
+        
+        # Check if clickable
+        try:
+            WebDriverWait(driver, 2).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+            print(f"✓ Element is clickable")
+        except:
+            print(f"⚠️ Element found but NOT clickable yet")
+        
+        return element
+    except TimeoutException:
+        print(f"❌ XPath NOT valid for {field_name}")
+        print(f"ℹ️ Test in browser: $x('{xpath}')")
+        return None
+```
+
+---
+
+## Best Practices Summary
+
+### DO:
+1. ✅ Implement 3-retry logic for every field
+2. ✅ Log XPath before every interaction
+3. ✅ Use explicit waits over implicit waits
+4. ✅ Verify prerequisite fields before dependent fields
+5. ✅ Wait for spinners to disappear
+6. ✅ Use JavaScript for masked inputs
+7. ✅ Let exceptions propagate to stop automation
+8. ✅ Include XPath in all exception messages
+9. ✅ Re-find elements in retry loops
+10. ✅ Store XPaths in centralized templates
+
+### DON'T:
+1. ❌ Use broad `try/except: pass` (silent failures)
+2. ❌ Hardcode XPaths in functions
+3. ❌ Use `.format()` with multiple placeholders
+4. ❌ Continue automation after critical field fails
+5. ❌ Skip field verification
+6. ❌ Mix implicit and explicit waits
+7. ❌ Assume element is ready after DOM presence
+8. ❌ Reuse stale element references
+9. ❌ Skip XPath logging
+10. ❌ Use fixed `time.sleep()` for element availability
+
+---
+
+## File Logging (Optional but Recommended)
+
+### Dual Logging Setup
+Log to both console AND file simultaneously:
+
+```python
+import sys
+
+class TeeLogger:
+    """Write to multiple streams simultaneously."""
+    def __init__(self, *files):
+        self.files = files
+    
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()  # Immediate flush (survives crashes)
+    
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+# Setup at start of script
+log_file = open('automation.log', 'w', encoding='utf-8')
+sys.stdout = TeeLogger(sys.stdout, log_file)
+sys.stderr = TeeLogger(sys.stderr, log_file)
+```
+
+---
+
+## Summary Checklist
+
+For every Selenium automation file, ensure:
+
+- [ ] 3-retry logic implemented for all field interactions
+- [ ] XPath logged before every element interaction
+- [ ] Exceptions include field name, XPath, value, error details
+- [ ] No try/except wrappers around functions (let exceptions propagate)
+- [ ] Explicit waits used (no implicit waits)
+- [ ] Spinner/loading waits implemented
+- [ ] Prerequisite fields verified before dependent fields
+- [ ] JavaScript used for masked inputs (phone, SSN, etc.)
+- [ ] Post-fill verification for critical fields
+- [ ] XPaths stored in centralized templates
+- [ ] Visual indicators used consistently (✓, ❌, →, ⚠️)
+- [ ] Elements re-found in retry loops (avoid stale references)
+- [ ] Clear, descriptive function names
+- [ ] Code organized into focused helper functions
+- [ ] Data validated before automation starts
+
+---
+
+**End of Python Selenium Automation Ruleset**

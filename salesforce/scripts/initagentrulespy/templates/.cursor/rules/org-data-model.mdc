@@ -1,0 +1,63 @@
+---
+description: Comprehensive guide to your org's data model — entity relationships, junction objects, business classification rules, lifecycle/termination logic, and credentialing or other domain workflows. Apply this rule when working with any of the project's primary objects so the AI agent has the schema-level context it needs before writing code.
+alwaysApply: true
+---
+
+<!--
+HEADS UP — This is a generated stub from `scripts/initagentrulespy/init.py`.
+
+The original org-specific data-model rule (typically 1000+ lines documenting
+each project's primary sObjects, junction objects, RecordTypes, and
+lifecycle/termination logic) was deliberately replaced with this stub during
+init, because each project's data model is unique and a generic version
+would be misleading in a fresh project.
+
+REPLACE this stub with your org's actual data-model documentation. Recommended
+sections:
+
+  1. Overview                — When to apply this rule + what it covers
+  2. Terminology             — Project-specific glossary (e.g. "Vendor" vs "Practitioner")
+  3. Core Entities           — Each primary sObject: purpose, schema link, critical fields
+  4. Entity Relationship     — Mermaid diagram showing how objects connect
+  5. Junction Objects        — How many-to-many relationships are modelled, RecordTypes,
+                               key fields, validation rules
+  6. Business Classification — Domain rules that derive from data (e.g. "active",
+                               "delegated", "primary", etc.)
+  7. Termination / Lifecycle — How records transition between states; soft-delete
+                               vs hard-delete patterns; effective-date conventions
+  8. Cascading Effects       — When changing one record automatically affects others
+  9. Common Pitfalls         — Mistakes that lookups / junction objects invite
+ 10. Quick Reference         — RecordType IDs, key field-to-meaning cheat sheet
+
+Cross-reference companion rules:
+  - `.cursor/rules/salesforce-schema-validation.mdc` — schema-first read order
+  - `.cursor/rules/sf-cli-commands.mdc`              — sf CLI reference
+
+Once you've authored the real content, delete this comment block.
+-->
+
+# Org Data Model
+
+## Overview
+
+> _Replace with a 2-3 sentence summary of your org's data model and when to apply this rule._
+
+## Core Entities
+
+> _Document each primary sObject here._
+
+## Entity Relationship Diagram
+
+> _Replace with a mermaid diagram of your object relationships._
+
+## Junction Objects
+
+> _Document each junction here._
+
+## Termination / Lifecycle Logic
+
+> _Document the lifecycle and soft-delete patterns specific to your org._
+
+## Common Pitfalls
+
+> _Document common mistakes specific to your data model._

@@ -3,26 +3,30 @@
 Salesforce ER Schema Generator
 ==============================
 
-A reusable utility to parse Salesforce metadata XML files and generate a 
-comprehensive YAML schema document for AI agents to understand data model relationships.
+A reusable utility to parse Salesforce metadata XML files and generate a
+comprehensive TOON schema document for AI agents to understand data model
+relationships.
+
+Output format: TOON (Token-Oriented Object Notation, v3.0).
+See: https://github.com/toon-format/spec/blob/main/SPEC.md
 
 Usage:
     python3 generate_sf_er_schema.py [options]
 
 Options:
     --objects-path PATH     Path to objects directory (auto-detected if not provided)
-    --output-path PATH      Path for output YAML file (default: config/salesforce-er-schema.yaml)
+    --output-path PATH      Path for output TOON file (default: config/salesforce-er-schema.toon)
     --help                  Show this help message
 
 Example:
     # Run from project root (auto-detects paths)
     python3 generate_sf_er_schema.py
-    
+
     # Specify custom paths
-    python3 generate_sf_er_schema.py --objects-path ./force-app/main/default/objects --output-path ./schema.yaml
+    python3 generate_sf_er_schema.py --objects-path ./force-app/main/default/objects --output-path ./schema.toon
 
 Requirements:
-    pip install pyyaml
+    pip install -r scripts/schemapy/requirements.txt
 """
 
 import os
@@ -32,12 +36,9 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 
-try:
-    import yaml
-except ImportError:
-    print("Error: PyYAML module not found.")
-    print("Please install it using: pip install pyyaml")
-    sys.exit(1)
+# Allow `from _toon_io import ...` regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _toon_io import dump_toon, find_project_root  # noqa: E402
 
 # Salesforce metadata namespace
 SF_NS = {'sf': 'http://soap.sforce.com/2006/04/metadata'}
@@ -320,15 +321,29 @@ class SalesforceSchemaParser:
                     except Exception as e:
                         print(f"  Warning: Could not add relationship for {field_name}: {e}")
             
-            # Picklist values
+            # Picklist values — captured as {value, label} pairs so the
+            # display label is preserved alongside the API value (they
+            # commonly differ, e.g. value=PCP, label=Primary Care Physician).
             if field_data.get('type') in ['Picklist', 'MultiselectPicklist']:
                 try:
                     picklist_values = []
                     value_set = root.find('.//sf:valueSet', SF_NS)
                     if value_set is not None:
-                        for value_elem in value_set.findall('.//sf:fullName', SF_NS):
-                            if value_elem.text:
-                                picklist_values.append(value_elem.text)
+                        for value_elem in value_set.findall('.//sf:value', SF_NS):
+                            full_name_node = value_elem.find('sf:fullName', SF_NS)
+                            label_node = value_elem.find('sf:label', SF_NS)
+                            if full_name_node is not None and full_name_node.text:
+                                v = full_name_node.text
+                                # Salesforce custom-field XML uses <label>
+                                # for the display string; some standard
+                                # fields use <masterLabel>. Support both,
+                                # fall back to value if neither present.
+                                if label_node is None:
+                                    label_node = value_elem.find('sf:masterLabel', SF_NS)
+                                l = (label_node.text
+                                     if label_node is not None and label_node.text
+                                     else v)
+                                picklist_values.append({'value': v, 'label': l})
                     if picklist_values:
                         field_data['picklist_values'] = picklist_values
                 except Exception as e:
@@ -453,72 +468,41 @@ class SalesforceSchemaParser:
             print(f"  Warning: Error extracting validation rule data from {vr_file.name}: {e}")
             return {'name': vr_file.stem, 'parse_error': str(e)}
     
-    def save_yaml(self, output_path):
+    def save_toon(self, output_path):
         """
-        Save the schema to a YAML file.
-        
+        Save the schema to a TOON file.
+
+        TOON has no comment syntax (spec §1.4 / "Out of scope: comments"),
+        so the previous YAML-style banner is intentionally omitted. The
+        same generation metadata is preserved inside the document via the
+        `salesforce_schema.metadata` block.
+
         Args:
-            output_path: Path where the YAML file should be saved
-            
+            output_path: Path where the TOON file should be saved
+
         Returns:
             True if successful, False otherwise
         """
         try:
             output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            print(f"\nError: Permission denied creating directory {output_path.parent}: {e}")
-            return False
         except Exception as e:
-            print(f"\nError: Could not create directory {output_path.parent}: {e}")
+            print(f"\nError: Invalid output path {output_path}: {e}")
             return False
-        
+
         print(f"\nSaving schema to: {output_path}")
-        
+
         try:
-            with open(output_path, 'w', encoding='utf-8') as f:
-                # Write header comment
-                f.write("# Salesforce Entity-Relationship Schema\n")
-                f.write("# Auto-generated ER schema for AI agents to understand data model relationships\n")
-                f.write(f"# Generated: {self.schema['salesforce_schema']['metadata']['generated_date']}\n")
-                f.write("#\n")
-                f.write("# This document provides:\n")
-                f.write("# - Complete object definitions with all fields\n")
-                f.write("# - Relationship mappings (Lookup, Master-Detail)\n")
-                f.write("# - Record types and validation rules\n")
-                f.write("# - Field metadata (types, descriptions, constraints)\n")
-                f.write("#\n")
-                f.write("# Usage:\n")
-                f.write("#   AI agents can use this schema to:\n")
-                f.write("#   - Understand object relationships for writing SOQL queries\n")
-                f.write("#   - Identify available fields and their types\n")
-                f.write("#   - Reference validation rules and record types\n")
-                f.write("#   - Build code that respects the data model structure\n")
-                f.write("#\n\n")
-                
-                # Write YAML content
-                yaml.dump(
-                    self.schema, 
-                    f, 
-                    default_flow_style=False, 
-                    sort_keys=False, 
-                    allow_unicode=True, 
-                    width=120
-                )
-        
+            dump_toon(self.schema, output_path)
         except PermissionError as e:
             print(f"\nError: Permission denied writing to {output_path}: {e}")
             return False
         except IOError as e:
             print(f"\nError: I/O error writing to {output_path}: {e}")
             return False
-        except yaml.YAMLError as e:
-            print(f"\nError: YAML serialization error: {e}")
-            return False
         except Exception as e:
             print(f"\nError: Unexpected error saving schema: {e}")
             return False
-        
+
         print(f"✓ Schema saved successfully!")
         print(f"  Total objects: {self.schema['salesforce_schema']['metadata']['total_objects']}")
         print(f"  Total relationships: {len(self.schema['salesforce_schema']['relationships'])}")
@@ -527,53 +511,51 @@ class SalesforceSchemaParser:
 
 def find_objects_path():
     """
-    Auto-detect the Salesforce objects directory from the current location.
-    
+    Auto-detect the Salesforce objects directory from the project root
+    (resolved by walking up from this script's location, not from cwd).
+
     Returns:
         Path to objects directory or None if not found
     """
     try:
-        current_dir = Path.cwd()
+        project_root = find_project_root()
     except Exception as e:
-        print(f"Error: Could not determine current directory: {e}")
+        print(f"Error: Could not determine project root: {e}")
         return None
-    
-    # Common Salesforce project structures
+
     possible_paths = [
-        current_dir / 'force-app' / 'main' / 'default' / 'objects',
-        current_dir / 'src' / 'objects',
-        current_dir / 'objects',
+        project_root / 'force-app' / 'main' / 'default' / 'objects',
+        project_root / 'src' / 'objects',
+        project_root / 'objects',
     ]
-    
+
     for path in possible_paths:
         try:
             if path.exists() and path.is_dir():
                 return path
         except PermissionError:
-            # Skip paths we don't have permission to check
             continue
         except Exception:
-            # Skip any other problematic paths
             continue
-    
+
     return None
 
 
 def main():
     """Main execution function."""
     parser = argparse.ArgumentParser(
-        description='Generate Salesforce ER Schema YAML from metadata files',
+        description='Generate Salesforce ER Schema TOON from metadata files',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Auto-detect paths (run from project root)
   python3 generate_sf_er_schema.py
-  
+
   # Specify custom objects directory
   python3 generate_sf_er_schema.py --objects-path ./force-app/main/default/objects
-  
+
   # Specify custom output location
-  python3 generate_sf_er_schema.py --output-path ./docs/schema.yaml
+  python3 generate_sf_er_schema.py --output-path ./docs/schema.toon
 
 Note:
   This script only generates schema from existing local metadata.
@@ -590,12 +572,14 @@ Note:
     
     parser.add_argument(
         '--output-path',
-        help='Path for output YAML file (default: config/salesforce-er-schema.yaml)',
+        help='Path for output TOON file (default: <project-root>/config/salesforce-er-schema.toon)',
         type=str,
-        default='config/salesforce-er-schema.yaml'
+        default=None
     )
-    
+
     args = parser.parse_args()
+    if args.output_path is None:
+        args.output_path = str(find_project_root() / 'config' / 'salesforce-er-schema.toon')
     
     # Determine objects path
     if args.objects_path:
@@ -629,7 +613,18 @@ Note:
         print("\nError: Failed to parse objects.")
         sys.exit(1)
     
-    if not schema_parser.save_yaml(output_path):
+    # Cleanup: drop the old YAML intermediate if it still exists from a
+    # previous YAML-era run. The TOON file at `output_path` is the new
+    # source of truth.
+    legacy_yaml = output_path.with_suffix('.yaml')
+    if legacy_yaml.exists() and legacy_yaml != output_path:
+        try:
+            legacy_yaml.unlink()
+            print(f"  Removed orphan YAML intermediate: {legacy_yaml}")
+        except Exception as e:
+            print(f"  Warning: could not remove orphan {legacy_yaml}: {e}")
+
+    if not schema_parser.save_toon(output_path):
         print("\nError: Failed to save schema.")
         sys.exit(1)
     
