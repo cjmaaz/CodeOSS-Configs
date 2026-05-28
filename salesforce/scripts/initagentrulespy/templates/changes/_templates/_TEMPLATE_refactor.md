@@ -107,6 +107,24 @@
 
 ## 5. Before / after architecture
 
+<!--
+  ──────────────────────────────────────────────────────────────────────
+  FILL UP FRONT (per `.cursor/rules/changes-doc-mandatory.mdc` Step E4)
+  ──────────────────────────────────────────────────────────────────────
+  Both halves of this diagram belong UP FRONT, before any code edit.
+    - The BEFORE half is the output of Step E1 + Step E2 from the
+      pre-coding analysis (surface map + dependency chain — accurate
+      reflection of the current org state, NOT a pretty version of it).
+    - The AFTER half is the intended post-refactor shape, designed
+      while you still have time to push back on it. Refactors that
+      draw the after-diagram for the first time at wrap-up tend to
+      retro-fit the diagram to the code that happened to land —
+      defeating the "is this shape actually better?" review purpose
+      of the section.
+  Update the AFTER half at wrap-up if the implementation diverged, but
+  never start with the section blank.
+-->
+
 ```mermaid
 flowchart LR
   subgraph before [Before]
@@ -138,6 +156,18 @@ flowchart LR
 
   If you intentionally changed any behavior (e.g. fixed a latent bug along the
   way), call it out separately so reviewers don't miss it.
+
+  ──────────────────────────────────────────────────────────────────────
+  FILL UP FRONT (per `.cursor/rules/changes-doc-mandatory.mdc` Step E4)
+  ──────────────────────────────────────────────────────────────────────
+  The invariant list is itself the output of Step E3 (intended-vs-
+  accidental side-effect classification). Every INTENDED row from E3
+  becomes an "Invariant" row here BEFORE you start coding — that way
+  you know exactly what your test plan must cover. The "How preserved"
+  + "Evidence" columns get filled progressively during coding (you
+  write the test, then paste its name as evidence). The "Intentional
+  behavior changes" subsection below is for INTENDED-but-deliberately-
+  CHANGED behaviors that came out of an E3 conversation with the user.
 -->
 
 | Invariant | How preserved | Evidence |

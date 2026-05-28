@@ -23,6 +23,24 @@
   pinpoint roughly when a component shifted.
 
   ─────────────────────────────────────────────────────────────────────
+  ASSUMES PLAN-FIRST WORKFLOW
+  ─────────────────────────────────────────────────────────────────────
+
+  This template is only filled in AFTER the agent has completed the
+  multi-phase retrieve described in `docs/sf-org-mirror-retrieve.md`
+  Phase 0 through Phase 2.22. That runbook (Phase 0.0) requires the
+  agent to spawn an EXPLICIT TodoWrite plan covering every phase + the
+  audit sub-phases + both git commits BEFORE running any `sf` command.
+
+  If you arrived at this template without having spawned that plan, STOP
+  and read `docs/sf-org-mirror-retrieve.md` § Phase 0.0 first — the
+  plan-first discipline makes the long-running sequence resumable on
+  partial failure (transient org timeouts, sandbox restarts, agent
+  crashes). Skipping it means a mid-run failure is ambiguous about what
+  actually finished, and the resuming agent often re-does Phase 1 from
+  the top unnecessarily.
+
+  ─────────────────────────────────────────────────────────────────────
   EXEMPTION FROM THE GENERAL STAGING RULE
   ─────────────────────────────────────────────────────────────────────
 
@@ -165,11 +183,56 @@
 
     - File count changed / created / deleted
     - Up to ~10 file paths inline. If more, link to `git diff --stat`
-      output in `.retrieve-logs/_session.txt` instead of dumping 200 lines.
+      output in `.retrieve-logs/current/_session.txt` instead of dumping
+      200 lines.
     - One-line "what to look at first" suggestion if any file stands out
 
-  Order roughly by blast radius: ApexClass → triggers → LWC → OmniStudio →
-  data model (objects, fields, layouts) → security → everything else.
+  ============================================================================
+  HOW TO FILL §4 (mandatory workflow — runbook Phase 3.4.1 + 3.4.2)
+  ============================================================================
+
+  §4.1–§4.10 are NOT filled in a single pass. The runbook's Phase 3.4.1
+  prescribes a TODO-driven, magnitude-ordered analysis: spawn one TodoWrite
+  entry per metadata type that actually changed, ordered by descending
+  line-churn (with tie-break by blast-radius weight — Apex / triggers /
+  schema / security beats LWC / OmniStudio beats Profiles / FlexiPages /
+  mechanical types). Work each todo end-to-end before moving on, so the
+  per-type findings land deeply and you don't conflate types.
+
+  As you work each per-type todo, ALSO:
+
+    - For OmniStudio types (OmniScript, OmniIntegrationProcedure,
+      OmniDataTransform) — when the diff includes a NEW `<Name>_<vN+1>.*`
+      file AND a deactivation flip of the existing `<Name>_<vN>.*`,
+      RUN a version-pair diff:
+
+          git diff --no-index force-app/.../<Name>_<vN>.* \
+                              force-app/.../<Name>_<vN+1>.*
+
+      and summarize the substantive delta (added/removed elements, changed
+      conditionals, DR/remote-action bundle swaps) in the §4.X row. Without
+      this, "new version" reads as `+N lines from nothing` and the actual
+      change is invisible.
+
+    - For ApexClass / ApexTrigger — scan the class-declaration lines on
+      both sides of the diff. A class-name change inside the same file
+      (e.g. a casing flip like `XMLService -> XmlService`, OR a wholesale
+      rename refactor) OR a filename-vs-declaration mismatch is a RENAME.
+      Record both names inline in §4.1 AND flag it in §6.1 — these are
+      easy to miss because the file path looks unchanged.
+
+    - Record cross-type leads as you go (new Apex method names, new field
+      API names, new IP UniqueNames, new LWC `@salesforce/apex/...` imports,
+      new PermissionSet object/field grants paired with FlexiPage edits).
+      You'll use these in §4.11 (cross-type synthesis) below.
+
+  After every per-type todo is `completed`, spawn ONE FINAL synthesis todo
+  per Phase 3.4.2 — that fills §4.11. Then update §1 TL;DR to LEAD with the
+  holistic stories from §4.11, not just the headline counts from §3.
+
+  Order roughly by blast radius (this matches the runbook's tie-break
+  weights): ApexClass → triggers → LWC → OmniStudio → data model
+  (objects, fields, layouts) → security → everything else.
 -->
 
 ### 4.1 ApexClass — N changed, N created, N deleted
@@ -210,6 +273,39 @@
 ### 4.10 Other types
 
 <!-- Anything else: workflows, validation rules, named credentials, etc. -->
+
+### 4.11 Cross-type synthesis
+
+<!--
+  Holistic findings that span TWO OR MORE §4.X subsections — coherent
+  feature ships, paired security + UI changes, service+test+LWC trios,
+  cross-class coordination flags, etc. This section is filled by the
+  ONE FINAL synthesis todo from Phase 3.4.2 of the runbook, AFTER all
+  per-type todos are completed.
+
+  Connection signals to check (see runbook §3.4.2 for full table + worked
+  examples):
+    - New Apex method (§4.1) referenced by new/modified LWC import (§4.3)
+    - New CustomField (§4.7) appearing in new picklist values on RecordTypes
+      AND consumed by a new DataRaptor (§4.6)
+    - New IP version (§4.5) paired with a new DR (§4.6) on the same domain
+      (Order / Address / Account / Case / Activity Log / etc. — substitute
+      your project's domain words)
+    - PermissionSet object / field grants (§4.9) paired with FlexiPage
+      updates (§4.8) on the SAME sObject (coherent feature enablement)
+    - New `*Test.cls` + relaxed visibility on the source class (e.g.
+      `private` -> `public`, or new `@TestVisible`)
+    - Cross-class coordination flag (new `static Boolean` field on class A
+      assigned by class B's batch / trigger logic to suppress a downstream
+      side-effect)
+
+  One row per coherent thread. If nothing crosses types, write `n/a — all
+  diffs were independent / mechanical`. Don't pad.
+-->
+
+| Connection | Types involved | Holistic finding |
+|---|---|---|
+| [Short name of the thread] | §4.1 + §4.3 (e.g. ApexClass + LWC) | [One paragraph: what feature ships when these are read together, what to confirm with the owner, whether to expect downstream callers to migrate] |
 
 ---
 
@@ -328,8 +424,8 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 ## 8. Retrieve warnings (non-fatal)
 
 <!--
-  Skim `.retrieve-logs/*.log` for `Warnings` blocks. Most are recurring
-  Salesforce-side noise (listed in `docs/sf-org-mirror-retrieve.md`
+  Skim `.retrieve-logs/current/*.log` for `Warnings` blocks. Most are
+  recurring Salesforce-side noise (listed in `docs/sf-org-mirror-retrieve.md`
   "Known non-fatal warnings"). If you see anything NEW (not in that list),
   flag it here. Otherwise write "all known recurring warnings, no new
   surprises".
@@ -337,7 +433,7 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 
 | Phase log | New warning fragment | Investigated? |
 |---|---|---|
-| `.retrieve-logs/19-omniscript.log` | `<warning text>` | yes — known issue, see runbook §Known non-fatal warnings |
+| `.retrieve-logs/current/19-omniscript.log` | `<warning text>` | yes — known issue, see runbook §Known non-fatal warnings |
 
 ---
 

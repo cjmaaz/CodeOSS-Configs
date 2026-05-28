@@ -136,6 +136,17 @@
   For each non-obvious decision, document the alternatives you considered and why
   you picked the one you picked. Future-you (or your replacement) needs to be
   able to revisit these without re-running the analysis.
+
+  ──────────────────────────────────────────────────────────────────────
+  FILL UP FRONT (per `.cursor/rules/changes-doc-mandatory.mdc` Step E4)
+  ──────────────────────────────────────────────────────────────────────
+  Design decisions belong UP FRONT (after intake, before any code edit),
+  not after-the-fact. Spawn the preliminary changes/<slug>.md as soon as
+  intake closes. Each Step E3 ACCIDENTAL row that the user resolves into
+  an INTENDED behavior becomes a row in this section — with the rejected
+  alternatives listed honestly. Doing this after-the-fact gives you a
+  doc full of "the choice was obvious" rationalizations; doing it before
+  gives you a real decision record the next engineer can revisit.
 -->
 
 ### 5.1 — <decision title>
@@ -161,6 +172,18 @@
 <!--
   Diagram + table. The diagram should show the new component(s) in the context
   of the existing system, with the new pieces visually distinguished.
+
+  ──────────────────────────────────────────────────────────────────────
+  FILL UP FRONT (per `.cursor/rules/changes-doc-mandatory.mdc` Step E4)
+  ──────────────────────────────────────────────────────────────────────
+  The architecture diagram is the output of Step E2 (cascading-impact
+  map) from the pre-coding analysis protocol. Draft it BEFORE any code
+  is written so you can see the dependency chain and catch accidental
+  side-effects in Step E3. At wrap-up, update if anything moved from
+  the planned shape — but never wait until wrap-up to draw it for the
+  first time. A diagram you draw from memory at wrap-up will be a
+  cleaned-up rationalization; a diagram you draw before coding is
+  evidence for the design decisions in §5 above.
 -->
 
 ```mermaid

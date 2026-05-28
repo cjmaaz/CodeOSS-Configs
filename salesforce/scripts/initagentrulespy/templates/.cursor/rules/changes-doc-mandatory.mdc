@@ -5,14 +5,17 @@ alwaysApply: true
 
 # Mandatory intake + `changes/` doc workflow
 
-This rule covers TWO chronological touchpoints in every piece of Salesforce work — skip neither:
+This rule covers THREE chronological touchpoints in every piece of Salesforce work — skip none:
 
 1. **Intake** (work starts) — confirm the ticket / story / case number with the user, and transcribe any acceptance-criteria screenshot or visual source into plain text. The text you capture here is what feeds §3 of the doc later. See [`#intake-protocol`](#intake-protocol).
-2. **Wrap-up** (work ends) — author `changes/<short-kebab-slug>.md` from the matching template, then commit code first and the doc second, with the doc referencing the code commit hash. See [`#wrap-up-protocol`](#wrap-up-protocol).
+2. **Pre-coding analysis** (between intake and first code edit) — map the cascading impact of the proposed change BEFORE touching the keyboard: which sObjects, triggers, flows, validation rules, and downstream automation will fire? Which side-effects are intentional vs accidental? Spawn the `changes/<slug>.md` doc early (not at wrap-up) with just the architecture / design-decisions / before-after sections filled from this analysis — that preliminary doc is the working artifact you grow during the work. See [`#pre-coding-analysis-protocol`](#pre-coding-analysis-protocol).
+3. **Wrap-up** (work ends) — finalize the doc that's been growing since Step 2, then commit code first and the doc second, with the doc referencing the code commit hash. See [`#wrap-up-protocol`](#wrap-up-protocol).
 
-Both halves are part of the Definition of Done. Don't write code without the intake half, don't declare work complete without the wrap-up half.
+All three halves are part of the Definition of Done. Don't write code without the intake half, don't write code without the pre-coding analysis half, don't declare work complete without the wrap-up half.
 
-> **Be proactive at both ends.** If the user opens a feature/bug with a screenshot or new requirement, pause and run the intake protocol BEFORE writing any code. If work appears wrapped — deploy succeeded, tests pass, a commit just landed, the user said "done" / "looks good" / "works now" / "ready to ship" — surface the wrap-up half and offer to create the doc. Do not wait to be asked at either point.
+> **Be proactive at all three.** If the user opens a feature/bug with a screenshot or new requirement, pause and run the intake protocol BEFORE writing any code. After intake closes, the NEXT thing you do is the pre-coding analysis — not the code. If work appears wrapped — deploy succeeded, tests pass, a commit just landed, the user said "done" / "looks good" / "works now" / "ready to ship" — surface the wrap-up half and offer to commit the doc that's been growing since pre-coding. Do not wait to be asked at any of the three.
+
+> **Why pre-coding analysis matters.** Salesforce is a heavily-cascading runtime: a single record insert can fire a process builder that fires a flow that fires a trigger that fires a workflow rule that updates a third sObject that fires another trigger. A change that looks like "just create one record" can ripple into 4–5 sObjects, two queueable jobs, and an outbound message — some of those ripples are exactly what the requirement wants, others are accidental and only surface in QA (or worse, in prod). Walking the trigger / flow / validation-rule landscape BEFORE coding catches the accidental ripples while they're still cheap to design around. Discovering them after the code is shipped means rework, regression-bug docs, or worse — silent data drift.
 
 ---
 
@@ -26,6 +29,17 @@ Run [`#intake-protocol`](#intake-protocol) the FIRST time any of these happen in
 - A new chat begins with a feature, bug, or refactor request and the user hasn't already established the ticket context.
 
 > **If you're not sure whether it's a fresh intake**, treat it as one. The cost of asking "confirming this is for <ticket>?" is trivial; the cost of building the wrong scope is huge.
+
+## Pre-coding analysis triggers (run the pre-coding analysis protocol)
+
+Run [`#pre-coding-analysis-protocol`](#pre-coding-analysis-protocol) immediately AFTER the intake protocol closes and BEFORE you open any source file for editing or run any `sf project deploy` / DML command. Specifically:
+
+- The intake protocol (Steps A-D) just finished — the ticket is confirmed, ACs are transcribed, out-of-scope is captured.
+- The user has approved the intake bundle and you're about to start working.
+- You've already pulled the latest metadata for the touched components per [`retrieve-before-edit`](../../../.claude/skills/retrieve-before-edit/SKILL.md) (if not, do that FIRST — analysis on stale local copies will give wrong answers).
+- You're about to add a new sObject record, a new trigger / flow / validation rule, a new Apex class that does DML, a new OmniScript step that calls a DataRaptor or IP, or any change that COULD trigger downstream automation.
+
+> **If the work is genuinely tiny** (a one-line typo fix in a comment, a stub fill, a label rename with no schema implication), the pre-coding analysis collapses to a single sentence in §3 / §5 of the eventual doc — "no downstream automation involved, X.cls comment-only edit". Don't pad. But run the analysis step explicitly so the doc actually has that one-sentence record rather than silently skipping it.
 
 ## Wrap-up triggers (run the wrap-up protocol)
 
@@ -101,6 +115,108 @@ The §3 ACs in the final doc MUST be the transcribed text from Step B — **neve
 
 ---
 
+## Pre-coding analysis protocol
+
+After intake closes and BEFORE any code edit, run the five steps below **as TodoWrite entries** (one per step — see Step E0). Each is an explicit, separately-completable unit of work. The protocol's output is a partially-filled `changes/<slug>.md` doc that becomes the working artifact for the rest of the piece of work — you'll grow it during coding and finalize it at wrap-up.
+
+### Step E0 — Spawn the analysis plan as todos FIRST
+
+Before reading any source file or sketching any diagram, spawn a `TodoWrite` plan with one entry per analysis step (E1 through E4 below). Why: like the retrieve workflow (see [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md) §0.0), the pre-coding analysis is a multi-stage sequence that benefits from explicit resumability. If you discover halfway through Step E2 (data-flow mapping) that you need a fresh schema retrieve, the todo list lets you pause, run the retrieve, and resume at the right step instead of losing context.
+
+Minimum required todos:
+
+```
+[ ] Step E1 — Identify the touched surface (sObjects, triggers, flows, validation rules, OmniStudio components)
+[ ] Step E2 — Map cascading impact (which automation fires on which create / update / delete; build a dependency graph)
+[ ] Step E3 — Classify intended vs accidental side-effects (flag the ones to confirm with the user before coding)
+[ ] Step E4 — Spawn the preliminary changes/<slug>.md doc and fill the architecture sections from E1-E3 findings
+```
+
+Mark each as `in_progress` before starting and `completed` only when its output is actually captured in the preliminary doc.
+
+### Step E1 — Identify the touched surface
+
+List EVERY metadata component the proposed change will read, write, or trigger:
+
+- **sObjects** — what records get created / updated / deleted? Use the schema files (`config/schema/objects/<X>/` per [`salesforce-schema-validation.mdc`](salesforce-schema-validation.mdc)) to confirm field shapes and lookups.
+- **Triggers** — `grep -l "<sObject>" force-app/main/default/triggers/*.trigger` to find every trigger on the affected sObject. List by handler class.
+- **Flows** — `grep -l "<sObject>" force-app/main/default/flows/*.flow-meta.xml` (look for `<object>` and `<inputAssignments><field>` patterns; record builders / record-triggered flows / scheduled flows are all candidates).
+- **Validation rules** — `ls force-app/main/default/objects/<sObject>/validationRules/` lists all rules that fire on insert/update.
+- **OmniStudio** — `grep -l "<sObject>" force-app/main/default/omniIntegrationProcedures/*.oip-meta.xml force-app/main/default/omniDataTransforms/*.rpt-meta.xml force-app/main/default/omniScripts/*.os-meta.xml` lists every OmniStudio component that touches the sObject.
+- **Apex callers** — `grep -l "<sObject>" force-app/main/default/classes/*.cls` finds classes that DML the sObject.
+- **Custom Metadata / Custom Settings** — if any are read for runtime behavior toggles, list them.
+
+Capture the full list in working memory (or scratch notes). It feeds Step E2.
+
+### Step E2 — Map the cascading impact (data-flow sketch)
+
+For each create / update / delete the proposed change will perform, walk the chain DOWNSTREAM:
+
+1. What triggers fire on that DML? (from E1's trigger list)
+2. What flows fire on that DML? (from E1's flow list)
+3. What downstream DML do those triggers + flows perform — i.e. what OTHER sObjects do they touch?
+4. Re-enter step 1 for each newly-touched sObject. Repeat until the chain terminates (no new sObjects touched).
+
+Produce a sketch — a mermaid `flowchart` diagram works well for the eventual doc; for working memory a simple bulleted "A → B → C" tree is enough. Example (generic — substitute your project's sObjects and class names):
+
+```
+Account insert
+ └─ AccountTrigger
+     └─ AccountTriggerHandler.afterInsert
+         └─ creates Contact x N (one per linked role)
+         └─ Flow `Account After Insert — Set Active__c` updates back to Account
+Account update (Active__c true → false)
+ └─ Process Builder `Account Inactivation` (legacy)
+     └─ Flow `Deactivate Related Contacts` updates all related Contacts
+         └─ Contact trigger ContactTrigger
+             └─ fires ContactTriggerHandler.afterUpdate
+                 └─ updates CountOfActiveContacts__c on parent Account (rollup-style)
+```
+
+### Step E3 — Classify intended vs accidental side-effects
+
+Walk the dependency graph from E2 and tag each downstream effect (the example below mirrors the E2 sketch above — substitute your project's sObjects when applying):
+
+| Effect | Tag | Why |
+|---|---|---|
+| `creates Contact x N` | INTENDED | matches AC3 ("each new Account must spawn one Contact per active role") |
+| `Flow updates Active__c back to Account` | INTENDED | matches AC1 (default active=true on creation) |
+| `Contact trigger updates CountOfActiveContacts__c rollup on Account` | ACCIDENTAL — flag for confirmation | the AC says nothing about counts; this rollup may bump on every Contact create even when no records are touched directly, possibly racing with the deactivation flow |
+| `Process Builder Account Inactivation legacy` | ACCIDENTAL — flag for confirmation | the design assumes triggers only, but a legacy PB is still in the chain — confirm with owner whether to disable it or work around it |
+
+Each ACCIDENTAL row becomes a question to the user / owner before you start coding. Each INTENDED row becomes evidence in the wrap-up doc's §3 (Requirements → AC mapping) or §6 (Architecture). The user has the option to redefine "intended" — never assume a side-effect is OK just because it's already in the org.
+
+> **Anti-pattern**: skipping E3 and "just coding" because the chain looks short. A short chain is exactly when it's cheap to map; long chains often hide cycles that no diagram-less prose can catch.
+
+### Step E4 — Spawn the preliminary `changes/<slug>.md` and fill the architecture sections
+
+Copy the matching template ([per the table below](#pick-a-template)) into `changes/<short-kebab-slug>.md` and **fill the architecture-relevant sections now** from E1-E3 findings. Leave the rest as template placeholders for wrap-up to complete. This is the working artifact the rest of the work grows around.
+
+Which sections to fill per template:
+
+| Template | Architecture sections to fill at Step E4 |
+|---|---|
+| `_TEMPLATE_bugfix.md` | §3 Architecture / context (the surface from E1 + the chain from E2). §6 Root cause analysis can be filled in skeletal "candidate causes from the dependency chain" form — finalized at wrap-up. |
+| `_TEMPLATE_story.md` | §5 Design decisions (alternatives considered, why chosen — the E3 ACCIDENTAL→INTENDED resolution lives here). §6 Architecture (the E2 sketch, ideally as a mermaid `flowchart`). |
+| `_TEMPLATE_refactor.md` | §5 Before / after architecture (current state from E1 + E2; intended after-state from the proposed change). §6 Behavioral invariants preserved (each row driven by an E3 INTENDED tag). |
+
+DO NOT commit the preliminary doc yet. It lives as an uncommitted working file through the coding phase. At wrap-up, you fill in the rest of the sections (Implementation summary / Key changes / Verification / Test coverage / etc.) and THEN run the two-commit pattern (code first, then the now-complete doc).
+
+> **Why early creation + late commit?** If you wait to draft the doc at wrap-up, the architecture analysis lives only in your working memory — and gets rewritten from memory hours later, missing the original side-effect classifications. If you commit the preliminary doc early, you fragment the history into 4+ commits per piece of work. The middle path (early write, late commit) keeps the doc structurally complete throughout the work AND collapses to two commits at the end.
+
+> **If the work changes scope mid-flight** (e.g. the user discovers another AC, or the side-effect analysis surfaces a deeper refactor than expected), pause and re-run the relevant E1-E3 steps. Update the preliminary doc's architecture sections. Don't let the doc drift away from reality — its purpose is to lock down "what we're about to do" before each code session, not to recap "what we did" after-the-fact.
+
+### Definition of Done for pre-coding analysis
+
+This protocol is done when ALL of these are true:
+
+1. Step E0-E4 todos are spawned and worked sequentially (no batched-complete).
+2. Step E3 has produced an explicit INTENDED-vs-ACCIDENTAL table; the user has confirmed (or you've adjusted the plan based on their answer) any ACCIDENTAL rows.
+3. `changes/<slug>.md` exists on disk with the architecture-relevant sections filled (per the §E4 table above). The rest of the doc is still template placeholders — that's expected.
+4. The doc is NOT yet committed (the two-commit pattern fires at wrap-up).
+
+---
+
 ## Wrap-up protocol
 
 Everything from here to "Anti-patterns" governs the wrap-up half: the `changes/<slug>.md` doc, the two-commit strategy, the per-template substance hints, and the generic-adaptation notes for forks. The wrap-up doc draws its requirements (§3) from the intake bundle you captured above.
@@ -109,12 +225,13 @@ Everything from here to "Anti-patterns" governs the wrap-up half: the `changes/<
 
 A piece of work is done when ALL of these are true:
 
-1. The intake protocol above was run at the start of the work — ticket confirmed, AC text transcribed and confirmed by the user.
-2. Code/metadata changes deploy cleanly to the working sandbox.
-3. Targeted Apex tests pass with the project's required coverage.
-4. Apex log retrieved and grepped for hidden `EXCEPTION|ERROR|FATAL` per [`test-deploy-ruleset.mdc`](test-deploy-ruleset.mdc).
-5. The two commits exist (see "Two-commit strategy" below): one for code, one for the `changes/` doc.
-6. The `changes/<slug>.md` doc is filled in — no stub sections, no `<...>` placeholders left over, and §3 contains the transcribed AC text from intake (NOT a screenshot reference).
+1. The intake protocol was run at the start of the work — ticket confirmed, AC text transcribed and confirmed by the user.
+2. The pre-coding analysis protocol was run AFTER intake and BEFORE any code edit — the touched surface mapped (E1), cascading impact sketched (E2), intended-vs-accidental side-effects classified and ACCIDENTAL ones confirmed with the user (E3), preliminary `changes/<slug>.md` doc spawned with architecture sections filled (E4).
+3. Code/metadata changes deploy cleanly to the working sandbox.
+4. Targeted Apex tests pass with the project's required coverage.
+5. Apex log retrieved and grepped for hidden `EXCEPTION|ERROR|FATAL` per [`test-deploy-ruleset.mdc`](test-deploy-ruleset.mdc).
+6. The two commits exist (see "Two-commit strategy" below): one for code, one for the `changes/` doc.
+7. The `changes/<slug>.md` doc — which has been growing as a working artifact since Step E4 — is fully filled in: no stub sections, no `<...>` placeholders left over; §3 contains the transcribed AC text from intake (NOT a screenshot reference); the architecture sections (per the E4 template-mapping table) reflect the FINAL state of the code, not just the pre-coding analysis (update them at wrap-up if implementation diverged).
 
 ---
 
@@ -127,7 +244,7 @@ Three templates ship at [`changes/_templates/`](changes/_templates/). Pick the o
 | Bug fix | [`changes/_templates/_TEMPLATE_bugfix.md`](changes/_templates/_TEMPLATE_bugfix.md) | Defect, regression, production incident, unexpected behavior. Heavy on root-cause + symptom timeline. |
 | Story / feature / requirement | [`changes/_templates/_TEMPLATE_story.md`](changes/_templates/_TEMPLATE_story.md) | New functionality, ticket-driven work, business-requested capability. Heavy on requirements + acceptance criteria. |
 | Refactor / tech-debt / optimization | [`changes/_templates/_TEMPLATE_refactor.md`](changes/_templates/_TEMPLATE_refactor.md) | Internal restructuring, performance work, code cleanup, no user-visible behavior change. Heavy on functional-parity proof + behavioral invariants. |
-| Retrieve audit | [`changes/_templates/_TEMPLATE_retrieve.md`](changes/_templates/_TEMPLATE_retrieve.md) | After running the org-wide mirror retrieve described in [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md). Snapshot record of what changed in the org since the last mirror, with suspicion-analysis heuristics. **Saves at `changes/git/retrieve-<YYYY-MM-DD>-<HHMM>-<sandbox-alias>.md`** instead of the usual `changes/<slug>.md` path. Phase 3 of the runbook covers the exact workflow including the two-commit pattern. |
+| Retrieve audit | [`changes/_templates/_TEMPLATE_retrieve.md`](changes/_templates/_TEMPLATE_retrieve.md) | After running the org-wide mirror retrieve described in [`docs/sf-org-mirror-retrieve.md`](../../docs/sf-org-mirror-retrieve.md). Snapshot record of what changed in the org since the last mirror, with suspicion-analysis heuristics. **Saves at `changes/git/retrieve-<YYYY-MM-DD>-<HHMM>-<sandbox-alias>.md`** instead of the usual `changes/<slug>.md` path. Phase 3 of the runbook covers the exact workflow including the two-commit pattern. **Plan-first is mandatory: spawn an explicit TodoWrite plan covering all 23 retrieve phases + the 3 audit sub-phases + the 2 git commits BEFORE running any `sf` command (runbook §0.0). Long-running retrieves can stall on slow-org days; the up-front plan makes the sequence resumable on partial failure.** **Phase 3.4.1 (per-type todos, magnitude-ordered, with OmniStudio version-pair diffs + class/file rename detection) and Phase 3.4.2 (cross-type synthesis) of the runbook are the mandatory analysis pattern — do not collapse them into a single sweep, and do not skip the synthesis step on heavy days.** |
 
 Copy the template:
 
@@ -346,10 +463,10 @@ Why the new version rejects it: strip removed; Salesforce raises
 ### Story example — design decisions section
 
 ```markdown
-### 4.1 — Async vs sync HFN creation for the new bulk import
+### 4.1 — Async vs sync child-record creation for the new bulk import
 
-**Decision:** Run HFN creation in a Queueable chained from the OmniScript, so
-the user gets a sub-3-second response and HFN records appear within ~30 seconds.
+**Decision:** Run child-record creation in a Queueable chained from the OmniScript, so
+the user gets a sub-3-second response and the child records appear within ~30 seconds.
 
 **Alternatives considered:**
 

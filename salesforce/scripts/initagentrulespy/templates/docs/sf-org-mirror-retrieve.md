@@ -32,7 +32,7 @@ This runbook is **org-agnostic** — every command uses a `$ORG_ALIAS` shell var
 
 3. **Pre-sharded manifest files at `manifest/fullpackage/`.** This repo ships 11 shards covering all 127 metadata types listed in `manifest/fullpackage.xml`. The runbook below uses 6 of them as bundled shards and treats the other 5 as per-type pulls. If your repo does not have these shards, copy them from this repo first or build your own.
 
-4. **A clean spot to capture logs.** The runbook writes to `.retrieve-logs/` (gitignored).
+4. **A clean spot to capture logs.** The runbook writes the active run's per-phase logs to `.retrieve-logs/current/` and rotates previous runs to `.retrieve-logs/archive/<TS>/`. Both subdirs are covered by the single `.retrieve-logs/` gitignore entry.
 
 ---
 
@@ -106,18 +106,54 @@ Anything bundled with one of these would push the call past 10k or extend its ru
 
 ## Phase 0 — pre-flight (1 read-only check)
 
+### 0.0 Spawn the explicit plan FIRST (mandatory)
+
+**Before running any `sf` command, before any retrieve writes to disk, the agent MUST spawn an explicit `TodoWrite` plan covering the entire end-to-end sequence.** A full retrieve is a long-running multi-stage operation (~20–45 min wall-clock across ~23 SF MDAPI calls plus an audit doc and two git commits), and any single phase can stall, hit a transient org error, or get interrupted. A plan up front makes the run **resumable** — if Phase 2.17 fails, the agent can re-read its todo list and know exactly which phases still need to run, which already-succeeded phases can be skipped, and where in the audit/commit workflow it left off.
+
+Minimum required todo entries (one per concrete step — agent may add more, but must not collapse any of these into a single sweep):
+
+```
+[ ] Phase 0 — pre-flight (org auth + WIP check + HEAD capture + .retrieve-logs/ rotation)
+[ ] Phase 1.1  → 1.11   (11 bundled / small-type retrieves, sequential)
+[ ] Phase 2.11 → 2.22   (12 single-type heavy retrieves, sequential lightest→heaviest)
+[ ] Phase 3.4.1 — per-type analysis todos (one TodoWrite entry per type that changed; spawned later, after Phase 2 completes)
+[ ] Phase 3.4.2 — cross-type synthesis todo
+[ ] Phase 3.4.3 — fill remaining audit-doc sections (header, §1, §2, §3, §5, §6, §7, §8, §10)
+[ ] Phase 3.5 — Commit 1: mirror snapshot (force-app/ + manifest/ + config/, doc held back)
+[ ] Phase 3.5 — Embed mirror hash in audit doc §9
+[ ] Phase 3.5 — Commit 2: audit doc only
+[ ] Phase 3.6 — pop WIP (only if stashed in 3.1) + verify clean tree
+```
+
+Mark each as `in_progress` before starting it and `completed` only after it actually finishes successfully (per `Status: Succeeded` in the log for retrieves, per the `git log -1` hash for commits). Do NOT batch-complete todos retroactively — losing the running-todo signal makes a mid-sequence failure ambiguous about what was actually finished.
+
+If the run was interrupted (org timeout, user `Ctrl-C`, agent crash, transient `sf` hang, sandbox restart), the FIRST thing the resuming agent does is read the todo list and identify the most recent `in_progress` entry — that's where work resumes. Don't restart from Phase 1.1 unless the resume-point todo logic is unrecoverably ambiguous.
+
+### 0.1 Org authentication check
+
 ```bash
 sf org list --all
 ```
 
 Confirm the target org is `Connected`. Abort and re-auth if expired.
 
+### 0.2 Rotate previous run + seed fresh `current/` log dir
+
 ```bash
-mkdir -p .retrieve-logs
-date "+Started: %Y-%m-%d %H:%M:%S" > .retrieve-logs/_session.txt
+# Rotate any leftover .retrieve-logs/current/ from a previous run into
+# .retrieve-logs/archive/<UTC-ts>/ so this run starts with a clean current/.
+# (Skip the rotation cleanly if no prior current/ exists — first-ever run.)
+if [ -d .retrieve-logs/current ] && [ -n "$(ls -A .retrieve-logs/current 2>/dev/null)" ]; then
+  ARCHIVE_TS=$(date -u +"%Y-%m-%dT%H%M%SZ")
+  mkdir -p .retrieve-logs/archive
+  mv .retrieve-logs/current ".retrieve-logs/archive/${ARCHIVE_TS}"
+  echo "  rotated previous run -> .retrieve-logs/archive/${ARCHIVE_TS}/"
+fi
+mkdir -p .retrieve-logs/current
+date "+Started: %Y-%m-%d %H:%M:%S" > .retrieve-logs/current/_session.txt
 ```
 
-> **Tip:** Add `.retrieve-logs/` to `.gitignore` if it isn't already.
+> **Tip:** Add `.retrieve-logs/` to `.gitignore` if it isn't already. The single umbrella entry covers both the active subdir (`.retrieve-logs/current/`) and every archived prior run (`.retrieve-logs/archive/<TS>/`).
 
 ---
 
@@ -135,7 +171,7 @@ Pulls NamedCredential, RemoteSiteSetting, ConnectedApp, Certificate, AuthProvide
 sf project retrieve start \
   --manifest manifest/fullpackage/fullpackage-integration.xml \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/01-integration.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/01-integration.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected wall-clock: **~30s – 8 min** (varies wildly by org load).
@@ -146,7 +182,7 @@ Expected wall-clock: **~30s – 8 min** (varies wildly by org load).
 sf project retrieve start \
   --manifest manifest/fullpackage/fullpackage-community.xml \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/02-community.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/02-community.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~20s – 2 min**.
@@ -161,7 +197,7 @@ sf project retrieve start \
   --metadata ManagedContentType \
   --metadata ActionLinkGroupTemplate \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/03-content-filtered.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/03-content-filtered.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~15s – 6 min**.
@@ -174,7 +210,7 @@ We deliberately skip `Translations` (the user-facing language pack). `CustomObje
 sf project retrieve start \
   --metadata CustomObjectTranslation \
   -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/04-translations-filtered.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/04-translations-filtered.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~4 – 12 min** (this is one of the slowest single-type retrieves).
@@ -191,7 +227,7 @@ sf project retrieve start \
   --metadata OmniInteractionConfig \
   --metadata OmniInteractionAccessConfig \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/05-omnistudio-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/05-omnistudio-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~20s – 4 min**.
@@ -208,7 +244,7 @@ sf project retrieve start \
   --metadata ApexTrigger \
   --metadata LightningMessageChannel \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/06-code-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/06-code-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~15s – 2 min**.
@@ -235,7 +271,7 @@ sf project retrieve start \
   --metadata MatchingRules \
   --metadata CleanDataService \
   -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/07-schema-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/07-schema-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~40s – 3 min**.
@@ -260,7 +296,7 @@ sf project retrieve start \
   --metadata BrandingSet \
   --metadata RecordActionDeployment \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/08-ui-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/08-ui-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~40s – 90s**.
@@ -284,7 +320,7 @@ sf project retrieve start \
   --metadata NotificationTypeConfig \
   --metadata CustomNotificationType \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/09-automation-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/09-automation-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~15s – 90s**.
@@ -308,7 +344,7 @@ sf project retrieve start \
   --metadata DelegateGroup \
   --metadata Skill \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/10-security-small.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/10-security-small.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~30s – 90s**.
@@ -327,7 +363,7 @@ sf project retrieve start \
   --metadata ExternalClientApplication \
   --metadata ApexEmailNotifications \
   -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/11-modern-auth-apex.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/11-modern-auth-apex.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected: **~10s – 30s**.
@@ -343,51 +379,51 @@ Order is **lightest → heaviest** so failures surface early.
 ```bash
 # 2.11 — AuraDefinitionBundle (~12 bundles)
 sf project retrieve start --metadata AuraDefinitionBundle -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/11-aura.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/11-aura.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.12 — Flow (~50)
 sf project retrieve start --metadata Flow -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/12-flow.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/12-flow.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.13 — FlexiPage (~108)
 sf project retrieve start --metadata FlexiPage -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/13-flexipage.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/13-flexipage.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.14 — LightningComponentBundle (~300)
 sf project retrieve start --metadata LightningComponentBundle -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/14-lwc.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/14-lwc.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.15 — Layout (~495)
 sf project retrieve start --metadata Layout -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/15-layout.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/15-layout.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.16 — ApexClass (~680)
 sf project retrieve start --metadata ApexClass -o "$ORG_ALIAS" --wait 60 \
-  2>&1 | tee .retrieve-logs/16-apexclass.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/16-apexclass.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.17 — CustomObject (~670 folders) — MUST precede CustomField
 sf project retrieve start --metadata CustomObject -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/17-customobject.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/17-customobject.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.18 — CustomField (~8,900) — closest to 10k limit
 sf project retrieve start --metadata CustomField -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/18-customfield.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/18-customfield.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.19 — OmniScript (~765)
 sf project retrieve start --metadata OmniScript -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/19-omniscript.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/19-omniscript.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.20 — OmniIntegrationProcedure (~1,670) — second heaviest
 sf project retrieve start --metadata OmniIntegrationProcedure -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/20-omniip.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/20-omniip.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.21 — OmniDataTransform / DataRaptors (~1,710) — heaviest single retrieve
 sf project retrieve start --metadata OmniDataTransform -o "$ORG_ALIAS" --wait 180 \
-  2>&1 | tee .retrieve-logs/21-omnidatatransform.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/21-omnidatatransform.log | grep -E "Status: (Succeeded|Failed)"
 
 # 2.22 — Profile (~29) — small count, slow per record (FLS-heavy); runs LAST
 sf project retrieve start --metadata Profile -o "$ORG_ALIAS" --wait 120 \
-  2>&1 | tee .retrieve-logs/22-profile.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/22-profile.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 Expected per-call wall-clock (varies 3-10x by org load):
@@ -446,7 +482,7 @@ PRE_HEAD_SHORT=$(git rev-parse --short HEAD)
 echo "Pre-retrieve HEAD: $PRE_HEAD_SHORT"
 ```
 
-Stash this value (env var, scratch file under `.retrieve-logs/`, or in your head) — it goes into §5 of the audit doc as the "since" reference.
+Stash this value (env var, scratch file under `.retrieve-logs/current/`, or in your head) — it goes into §5 of the audit doc as the "since" reference.
 
 ### 3.3 Run all 23 retrieve phases
 
@@ -465,19 +501,164 @@ cp changes/_templates/_TEMPLATE_retrieve.md "$DOC"
 echo "Audit doc seeded at: $DOC"
 ```
 
-Then fill in every section of the doc using the live data:
+The audit doc is THEN filled in three explicit phases — **do not collapse them into a single sweep**. On heavy days (>50 files changed), reading the whole diff at once silently misses cross-type connections (a new Apex method added for an LWC that calls it; a new field that a new DataRaptor reads; a permset grant that pairs with a FlexiPage update). The per-type-first → synthesize → fill-the-rest order below prevents those misses.
+
+### 3.4.1 Per-type analysis (todo-driven, magnitude-ordered)
+
+**Mandatory.** Spawn one `TodoWrite` entry per metadata type that ACTUALLY changed (skip the empty types — don't pre-populate the full 23-type list). Each todo is worked end-to-end before moving to the next.
+
+#### Compute magnitude
+
+```bash
+DIFF_RANGE="$PRE_HEAD..HEAD"
+
+# Total churn per type (modifications only, doesn't count untracked yet):
+for dir in classes triggers lwc aura omniScripts omniIntegrationProcedures \
+           omniDataTransforms layouts flexipages flows objects \
+           profiles permissionsets customMetadata \
+           externalCredentials namedCredentials apexEmailNotifications \
+           cleanDataServices siteDotComSites; do
+  churn=$(git diff --numstat "$DIFF_RANGE" -- "force-app/main/default/$dir/" \
+            2>/dev/null | awk '{s+=$1+$2} END{print s+0}')
+  [ "$churn" -gt 0 ] && printf "  %6d  %s\n" "$churn" "$dir"
+done | sort -rn
+
+# Add new-file lines for each type that has untracked files:
+git ls-files --others --exclude-standard force-app/main/default/ \
+  | awk -F/ '{print $4}' | sort | uniq -c | sort -rn
+```
+
+#### Order the todos
+
+Sort by descending magnitude (sum of churn + new-file lines). **Tie-break by blast-radius weight** when two types are within ~20% of each other:
+
+| Weight | Types |
+|---|---|
+| Highest (analyze first) | ApexClass, ApexTrigger, CustomField/CustomObject (schema), permissionsets, sharingRules |
+| Medium | LightningComponentBundle, AuraDefinitionBundle, OmniScript, OmniIntegrationProcedure, OmniDataTransform, flows |
+| Lowest (analyze last) | profiles (usually mechanical), layouts, flexipages, customMetadata, cleanDataServices, siteDotComSites |
+
+A high-weight type with 50 lines of churn beats a low-weight type with 100 lines of churn — the security/Apex/schema flags are the ones that bite hardest if missed.
+
+#### Per-todo workflow
+
+For each per-type todo, in order:
+
+1. **List the changed files** under that type:
+
+   ```bash
+   git diff --name-only "$DIFF_RANGE" -- "force-app/main/default/<dir>/"
+   git ls-files --others --exclude-standard "force-app/main/default/<dir>/"
+   ```
+
+2. **Diff each file** with per-extension hints (read the actual content, don't just stat):
+
+   | Extension | What to look for |
+   |---|---|
+   | `.cls` / `.trigger` | Class/method signatures, sharing keyword, `@IsTest` count, sObject DML targets, callouts to other classes (record their names) |
+   | `.js` / `.html` / `.css` (LWC) | `@api` properties (exposed API), `import` paths (Apex imports → record method names), wire adapters |
+   | `.os-meta.xml` / `.oip-meta.xml` | `<isActive>` flips, `<propertySetConfig>` payload changes, new/removed elements, DR/remote-action bundle swaps |
+   | `.rpt-meta.xml` (DataRaptor) | `<isManagedUsingStdDesigner>` (legacy vs std designer flip — different cache layer!), `<inputType>` / `<outputType>`, field mappings |
+   | `.field-meta.xml` | `<type>` (changing this on an existing field is destructive), `<trackHistory>`, `<required>`, `<unique>` |
+   | `.recordType-meta.xml` | `<picklistValues>` blocks (new field added to picklist set), `<active>` |
+   | `.profile-meta.xml` / `.permissionset-meta.xml` | `<allowDelete>`, `<allowEdit>`, `<allowRead>` flips on `<objectPermissions>`; new `<fieldPermissions>` with `<editable>true</editable>`; new `<classAccesses>` with `<enabled>true</enabled>` (the `<enabled>false</enabled>` ones are mechanical awareness-list noise) |
+   | `.flow-meta.xml` | `<status>Active|Draft|Obsolete</status>` |
+   | `.flexipage-meta.xml` | Component additions/removals on record pages |
+   | Anything else | Plain diff; ask yourself "what behaviour does this change?" |
+
+3. **Write a one-line "what stood out" note** for each notable file into the matching §4.X subsection of the audit doc.
+
+4. **Record cross-type leads** as you go — a side-list of names/refs that might tie to other types. The synthesis step (§3.4.2 below) will pick these up:
+   - New Apex method names, new Apex class names
+   - New CustomField API names, new RecordType picklist additions
+   - New IP UniqueNames, new DataRaptor names, new OmniScript subType+version
+   - New LWC bundle names and the Apex imports they make (`@salesforce/apex/<ClassName>.<methodName>`)
+   - New PermissionSet object/field grants (and which object/field)
+   - New FlexiPage record-page changes (and which sObject's record page)
+
+   Keep this side-list in working memory or in a scratch `.retrieve-logs/current/_crosslinks.txt` — you'll re-read it in §3.4.2.
+
+#### Special: OmniStudio version-pair diff
+
+When the type is `OmniScript` / `OmniIntegrationProcedure` / `OmniDataTransform` AND the diff includes a NEW `<Name>_<vN+1>.os-meta.xml` (or `.oip-meta.xml` / `.rpt-meta.xml`) alongside a deactivation flip of the existing `<Name>_<vN>.*`, RUN a version-pair diff and summarize the substantive delta. Without this, the new version reads as "+N lines from nothing" and the actual change is invisible.
+
+```bash
+# Example for an IP version pair (works the same for OS / DR):
+git diff --no-index \
+  force-app/main/default/omniIntegrationProcedures/MyType_MySubType_Procedure_27.oip-meta.xml \
+  force-app/main/default/omniIntegrationProcedures/MyType_MySubType_Procedure_28.oip-meta.xml \
+  | head -200
+```
+
+Summarize in §4.X with: which elements were added/removed, which conditional formulas changed, which DR / remote-action bundles were swapped. Note "v_N → v_N+1 (paired)" inline.
+
+#### Special: class / file rename detection
+
+For modified `.cls` and `.trigger` files, scan the class-declaration line on both sides of the diff. A name change inside the same file (or a filename change vs class declaration mismatch) means a rename — easy to overlook because the file path looks unchanged:
+
+```bash
+git diff "$DIFF_RANGE" -- 'force-app/main/default/classes/*.cls' \
+  | grep -E '^[+-]\s*(public|private|global)( (with|without|inherited) sharing)? class\s+\w+' \
+  | sort
+```
+
+If you see paired `-` / `+` lines with different class names, OR if the `+` class name differs from the filename basename, flag a rename in §6.1 of the audit doc with both names. This pattern catches:
+
+- **Casing flips** (e.g. `XMLValidationService → XmlValidationService`) where the file basename stays uppercase but the class declaration changes case. Apex compiles fine because class lookup is case-insensitive, but downstream callers may have explicitly-cased references that break.
+- **Wholesale renames** where someone refactored the class name in the org's Setup UI; the file basename keeps the old name (the `ApexClass.Id` didn't change), the declaration line moved.
+- **Sharing-keyword flips** that often accompany renames (`public class` → `public with sharing class` or vice versa). The sharing change is the security-relevant half — flag separately in §6.1 even when the rename itself is cosmetic.
+
+### 3.4.2 Cross-type synthesis (after all per-type todos complete)
+
+**Mandatory.** Spawn ONE final synthesis todo after every per-type todo has been marked `completed`. This is where the "holistic story" emerges — a new Apex method is just a new Apex method until you notice the new LWC bundle that imports it.
+
+#### Workflow
+
+1. **Re-read every §4.X section** you just wrote. Re-load the cross-type leads side-list from §3.4.1.
+2. **Search for connections** across types. Patterns to check:
+
+| Connection signal | What to look for | Example finding (illustrative — substitute your project's domain words) |
+|---|---|---|
+| New Apex method + new LWC import | LWC `.js` `import X from '@salesforce/apex/SomeClass.method'` where `SomeClass.method` is a newly-added Apex method | "The new `OrderActivationService.activate()` method + the new `orderActivationButton` LWC bundle that calls it ship the OrderActivation feature." |
+| New CustomField + new picklist values + new DataRaptor | A new `<CustomField>` appearing in a new `<picklistValues>` block on RecordTypes AND being read by a new/modified DR | "New field `Priority__c` + N RecordType updates + the DR `OrderPriorityExtract_1` together extend the order-intake form." |
+| New IP + new DR on same domain | New `<Name>_Procedure_N.oip-meta.xml` and a new `<NameAdjacent>_1.rpt-meta.xml` whose names share a domain word (Order / Address / Account / Case / etc. — substitute your project's domain prefixes) | "New IP `FetchOrderAddresses_Procedure_2` + new DR `OrderAddressExtract_1` together back the order-address-screen rewrite." |
+| PermissionSet grant + FlexiPage update | A new `<allowDelete>true</allowDelete>` or `<fieldPermissions>` grant + a FlexiPage edit on a record page for the SAME sObject | "Coherent ship: `OrderManagementAdmin` permset gained DELETE on `Order__c` paired with the `OrderRecordPage` FlexiPage updates." |
+| New Test class + relaxed visibility | A new `*Test.cls` + corresponding source class methods flipped from `private` to `public` (or `@TestVisible` added) | "Service split: `AccountValidationService` shipped with paired `*Test` after relaxing `buildInput` / `parseOutput` from `private` to `public`." |
+| Cross-class coordination flag | A new `static Boolean` field on class A + an assignment to it inside class B's batch/trigger logic | "`OrderTriggerHelper.RunningFromBatch` flag wires up so the trigger suppresses rollup recalc while `OrderBatchHandler` runs." |
+
+3. **Write findings into a NEW `### 4.11 Cross-type synthesis`** section in the audit doc. Use the table shape: *Connection* / *Types involved* / *Holistic finding*. One row per coherent feature ship the per-type sections fragmented across.
+4. **Update `## 1. TL;DR`** to lead with the holistic stories rather than just headline numbers. A reader should be able to glance at the TL;DR and know "ah, today's mirror was the OoO Log feature ship + an NPDB scheduler addition" rather than just "120 files changed".
+
+> **Note on the worked examples below.** Component names (`AuditLogService`, `Activity_Log__c`, etc.) are deliberately generic — substitute your project's actual prefixes / sObjects when applying the pattern. The structural pattern is what matters: how an Apex change + an LWC change + a permset change + a FlexiPage change cohere into "one feature ship" rather than reading as four unrelated diffs.
+
+#### Worked example 1 — `AuditLog*` service + LWC
+
+§4.1 noted four new ApexClasses: `AuditLogSerializer + Test`, `AuditLogService + Test`. §4.3 noted modifications to `lwc/auditLogTable/auditLogTable.js`. The LWC's `.js` imports `@salesforce/apex/AuditLogService.fetchEntries`. **Synthesis:** the four classes + the LWC together back a new audit-log surface on the admin UI; ship-rank: feature complete (paired tests + functional UI).
+
+#### Worked example 2 — `Activity_Log__c` DELETE grant + FlexiPage
+
+§4.8 noted `flexipages/ActivityLogRecordPage` was modified. §4.9 noted `OrderManagementAdmin.permissionset-meta.xml` gained `allowDelete: false → true` on `Activity_Log__c` (the ONLY object-permission diff in the perm set — 4 diff lines total). **Synthesis:** coherent activity-log feature ship — admins carrying the perm set can now delete activity-log records, and the record page reflects the new UI affordances.
+
+#### Worked example 3 — Per-sObject validation service split (with class rename)
+
+§4.1 noted yesterday's new `AccountValidationService` and today's new `ContactValidationService` — paired with the renamed `XMLValidationService → XmlValidationService` (also flagged in §6.1 as a casing rename). **Synthesis:** the team is splitting the validation surface into per-sObject variants (Account-side, Contact-side); today's `Contact` completes a symmetry that started 2 days ago with `Account`. Worth a future-state check: are there callers still routing through the renamed `Xml` service that should be migrated to the new per-sObject services?
+
+### 3.4.3 Fill remaining sections
+
+After §3.4.2 finishes, fill the remaining sections (header / §1 TL;DR (now informed by the synthesis) / §2 Per-phase status / §3 Source-count deltas / §5 Diff context / §6 Suspicion analysis / §7 WIP impact / §8 Warnings / §10 Follow-ups). Use the live data per the table below:
 
 | Section | Data source |
 |---|---|
 | Header block | `sf org display -o "$ORG_ALIAS"` for Org ID, wall-clock totals from the per-phase tee logs |
-| §1 TL;DR | Agent writes 3-6 sentences based on what stands out in §3 and §6 |
-| §2 Per-phase status | Read each `.retrieve-logs/NN-*.log` for status + elapsed time |
+| §1 TL;DR | Agent writes 3-6 sentences, **leading with the holistic stories from §4.11 cross-type synthesis** (filled in §3.4.2), supported by what stands out in §3 and §6 |
+| §2 Per-phase status | Read each `.retrieve-logs/current/NN-*.log` for status + elapsed time |
 | §3 Source-count deltas | Compare current counts (per the "Validating the run" snippet below) against the §3 table of the *previous* file in `changes/git/` |
-| §4 Changes by metadata type | `git diff --stat "$PRE_HEAD"..HEAD -- force-app/main/default/<folder>/` per type |
+| §4 Changes by metadata type (§4.1–§4.10) | **Already filled in §3.4.1** (one per-type todo per non-empty type). Do not redo here. |
+| §4.11 Cross-type synthesis | **Already filled in §3.4.2** (the synthesis todo). Do not redo here. |
 | §5 Diff context | `$PRE_HEAD` and `git diff --stat "$PRE_HEAD"..HEAD \| tail -5` |
 | §6 Suspicion analysis | Run the four heuristic sets below |
 | §7 WIP impact | Carry over the choice + outcome from 3.1 / 3.6 |
-| §8 Retrieve warnings | `grep -hE "Warning|Problem" .retrieve-logs/*.log` cross-checked against the "Known non-fatal warnings" table |
+| §8 Retrieve warnings | `grep -hE "Warning|Problem" .retrieve-logs/current/*.log` cross-checked against the "Known non-fatal warnings" table |
 | §9 Mirror commit reference | Filled in *after* 3.5 — leave `<short-hash>` placeholder until then |
 | §10 Open follow-ups | Anything from §6 that needs human review, plus anything the agent noticed |
 
@@ -655,11 +836,11 @@ After all 23 calls finish, check for failures:
 
 ```bash
 echo "=== Failures (none expected) ==="
-grep -l "Status: Failed" .retrieve-logs/*.log 2>/dev/null || echo "None"
+grep -l "Status: Failed" .retrieve-logs/current/*.log 2>/dev/null || echo "None"
 
 echo "=== Real errors ==="
 grep -hE "(LIMIT_EXCEEDED|MalformedQueryException|FATAL|too large)" \
-  .retrieve-logs/*.log 2>/dev/null || echo "(none)"
+  .retrieve-logs/current/*.log 2>/dev/null || echo "(none)"
 ```
 
 Then snapshot final source counts (compare against the previous run to spot what changed in the org):
@@ -697,19 +878,19 @@ These appear as `Warnings` rows in the retrieve output. They're metadata API edg
 | `Metadata API received improper input. … Load of metadata from db failed for … ConnectedApp … CPQIntegrationUserApp / Salesforce_CLI` | System ConnectedApps marked as packaged-only | Ignore |
 | `Entity type 'LiveChatAgentConfig' / 'LiveChatButton' / 'LiveChatDeployment' is not available in this organization` | Live Agent not licensed in this org | Ignore |
 | `A SiteDotCom site using template [Build Your Own (LWR)] does not support MD API Retrieval` | LWR sites are managed via Experience Cloud Build tools, not MD API | Ignore |
-| `Entity of type 'CustomMetadata' named 'PRM_Relatedlistconfiguration.…' cannot be found` | Stale references in the master `fullpackage.xml` to CMDT entries that were deleted in the org | Ignore (or clean the manifest) |
+| `Entity of type 'CustomMetadata' named '<YourCMDT>.…' cannot be found` | Stale references in the master `fullpackage.xml` to CMDT entries that were deleted in the org | Ignore (or clean the manifest) |
 | `Entity of type 'ListView' named '…' cannot be found` (~100 of these) | Installed-package objects whose stock list views aren't actually customized in the org | Ignore |
 | `Can't retrieve non-customizable CustomObject named: DecisionTblFileImportData` | System object — by design not retrievable | Ignore |
 | `Unable to retrieve file for id 0qhOv… of type OmniScript. Retrieving OmniProcessElement found more than 1000` | Vlocity OmniScript with >1000 child elements; known platform limit | Ignore — open the affected OmniScripts in OmniStudio Designer if you need them |
-| `Metadata API received improper input. … Load of metadata from db failed for metadata of type:OmniScript and file name:PRM_PDMManualUpdate_English_44` | OmniScript with a name that breaks the metadata file naming rules | Ignore |
+| `Metadata API received improper input. … Load of metadata from db failed for metadata of type:OmniScript and file name:<YourType>_<YourSubType>_English_<N>` | OmniScript with a name that breaks the metadata file naming rules (often happens to OmniScripts whose subType contains characters the MD API can't round-trip) | Ignore |
 | `You do not have the proper permissions to access Layout.` (×2) | Managed-package layouts the running user can't see | Ignore (or run as a higher-privilege user) |
-| `Entity of type 'QuickAction' named 'IndividualApplication.Send_Email_Notification' cannot be found` | Stale manifest reference | Ignore |
+| `Entity of type 'QuickAction' named '<sObject>.<QuickActionApiName>' cannot be found` | Stale manifest reference (the QuickAction was deleted from the org but still listed in your `manifest/fullpackage.xml`) | Ignore (or clean the manifest) |
 
 If you see anything **other than** these — particularly `LIMIT_EXCEEDED`, `MalformedQueryException`, `FATAL`, `too large`, or `Status: Failed` — that's a real failure. Re-run that single type with a longer wait:
 
 ```bash
 sf project retrieve start --metadata <Type> -o "$ORG_ALIAS" --wait 240 \
-  2>&1 | tee .retrieve-logs/<NN>-<type>-retry.log | grep -E "Status: (Succeeded|Failed)"
+  2>&1 | tee .retrieve-logs/current/<NN>-<type>-retry.log | grep -E "Status: (Succeeded|Failed)"
 ```
 
 If it still fails on size, fall back to the per-object sharding pattern from the **CustomField fallback** section above.
@@ -744,7 +925,7 @@ sf project retrieve start --metadata <SkippedType> -o "$ORG_ALIAS" --wait 120
 | Slow / loaded org (large package install in progress, Apex jobs running) | **~60 – 90 min** | ~3 min |
 | Severely degraded org | **2 – 3 hours** | ~5 min |
 
-The runbook is **background-friendly** — start it and keep working. It writes Status to terminal in real time and full output to `.retrieve-logs/`.
+The runbook is **background-friendly** — start it and keep working. It writes Status to terminal in real time and full output to `.retrieve-logs/current/` (with the previous run rotated to `.retrieve-logs/archive/<TS>/` during pre-flight).
 
 ---
 
@@ -802,10 +983,12 @@ git log --oneline HEAD@{1}..HEAD 2>/dev/null        # any commits during retriev
 ## Quick checklist (TL;DR)
 
 ```text
+[ ]  Phase 0.0 — Spawn the explicit TodoWrite plan FIRST (mandatory; see runbook §0.0). Long-running, resumable on failure.
 [ ]  export ORG_ALIAS=YourAlias            → set once at top of shell
 [ ]  echo "$ORG_ALIAS"                     → confirm it printed
 [ ]  sf org list --all                     → confirm Connected
-[ ]  mkdir -p .retrieve-logs changes/git
+[ ]  Rotate prior .retrieve-logs/current/ → .retrieve-logs/archive/<TS>/ (see Pre-flight)
+[ ]  mkdir -p .retrieve-logs/current changes/git
 [ ]  Phase 3.1 — WIP check (interactive)   → stash+pop / continue / abort
 [ ]  Phase 3.2 — capture PRE_HEAD          → git rev-parse HEAD
 [ ]  Phase 1 — 11 sequential calls   (~5–20 min total)
@@ -833,7 +1016,7 @@ git log --oneline HEAD@{1}..HEAD 2>/dev/null        # any commits during retriev
        2.20 OmniIntegrationProcedure
        2.21 OmniDataTransform         ← DataRaptors (.rpt-meta.xml)
        2.22 Profile                   ← LAST
-[ ]  grep -l "Status: Failed" .retrieve-logs/*.log    → expect "None"
+[ ]  grep -l "Status: Failed" .retrieve-logs/current/*.log    → expect "None"
 [ ]  Phase 3.4 — generate audit doc        → cp template → changes/git/retrieve-<date>-<time>-<alias>.md, fill in §1-§10
 [ ]  Phase 3.5 — commit 1 (mirror)         → git add force-app/ … ; commit; capture $MIRROR_SHORT
 [ ]  Phase 3.5 — embed hash in doc         → replace <short-hash> in header + §9

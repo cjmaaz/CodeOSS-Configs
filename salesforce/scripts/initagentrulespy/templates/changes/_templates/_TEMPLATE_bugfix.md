@@ -79,6 +79,16 @@
 
   Reference the canonical architecture doc if one already exists rather than
   re-explaining (e.g. "see docs/flows/<flow>.md for the full call tree").
+
+  ──────────────────────────────────────────────────────────────────────
+  FILL UP FRONT (per `.cursor/rules/changes-doc-mandatory.mdc` Step E4)
+  ──────────────────────────────────────────────────────────────────────
+  This section is the OUTPUT of the pre-coding analysis protocol (rule
+  steps E1-E3), not a wrap-up afterthought. Spawn the preliminary
+  changes/<slug>.md as soon as intake closes, fill THIS section from
+  the surface map (E1) + dependency-chain sketch (E2), then start coding.
+  At wrap-up, update this section if the implementation diverged from
+  the original sketch — but never start with it blank.
 -->
 
 ```mermaid
