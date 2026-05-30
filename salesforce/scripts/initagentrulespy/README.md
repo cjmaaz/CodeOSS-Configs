@@ -6,7 +6,7 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
 
 ---
 
-## TL;DR — for end users (your colleagues)
+## TL;DR — for end users
 
 1. Copy the entire `scripts/initagentrulespy/` folder to your machine. The folder is fully self-contained — you do NOT need to clone the source repo.
 2. From inside your new Salesforce repo, run:
@@ -21,17 +21,17 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
 
 ### What gets generated
 
-| Path | Count | What it is |
-|---|---:|---|
-| `.cursor/rules/` | 10 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org. |
-| `.cursor/permissions.json` | 1 | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist. |
-| `.claude/skills/` | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`. |
-| `docs/` | 9 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`. |
-| `changes/_templates/` | 3 | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule. |
-| `.vscode/` | 1 | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` are intentionally NOT generated — leave those to per-project preference. |
-| `.mcp.json` + `.cursor/mcp.json` | 2 (same content) | MCP server config. Same file content is written to BOTH paths so Claude Code (reads project-root `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. The filesystem-MCP path is auto-set to your repo's absolute path. |
-| `manifest/fullpackage/` | 11 | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit). |
-| `config/pmd-ruleset.xml` | 1 | Sensible default Apex PMD ruleset. Tune thresholds for your project. |
+| Path                             |                              Count | What it is                                                                                                                                                                                                                                       |
+| -------------------------------- | ---------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.cursor/rules/`                 |                                 10 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                                                    |
+| `.cursor/permissions.json`       |                                  1 | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                                         |
+| `.claude/skills/`                | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                                                   |
+| `docs/`                          |                                  9 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                                                 |
+| `changes/_templates/`            |                                  3 | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                                         |
+| `.vscode/`                       |                                  1 | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` are intentionally NOT generated — leave those to per-project preference.                                                                                     |
+| `.mcp.json` + `.cursor/mcp.json` |                   2 (same content) | MCP server config. Same file content is written to BOTH paths so Claude Code (reads project-root `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. The filesystem-MCP path is auto-set to your repo's absolute path. |
+| `manifest/fullpackage/`          |                                 11 | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit).                                                                                                                                            |
+| `config/pmd-ruleset.xml`         |                                  1 | Sensible default Apex PMD ruleset. Tune thresholds for your project.                                                                                                                                                                             |
 
 ### CLI reference
 
@@ -55,13 +55,13 @@ Options:
 
 `templates/` ships with five placeholder tokens. `init.py` replaces each of them with a runtime-detected (or CLI-supplied) value:
 
-| Placeholder in `templates/` | Becomes (at init time) | Detection chain | Fallback if detection / CLI flag missing |
-|---|---|---|---|
-| `{{ORG_ALIAS}}` | Your `target-org` alias | `<target>/.sf/config.json` → `target-org`, then `<target>/.sfdx/sfdx-config.json` → `defaultusername`, then `--alias` flag, then interactive prompt | `<TARGET_ORG_ALIAS>` (sentinel) |
-| `{{ORG_NAME}}` | Human-readable project / org name (e.g. "Acme Health") | `--org-name` CLI flag only — no auto-detect | `CURR ORG` (deliberate readable default; grep + replace later if you want) |
-| `{{JAVA_HOME}}` (in `.vscode/settings.json`) | Detected JDK home | `/usr/libexec/java_home -v 21\|17\|11` (macOS), `$JAVA_HOME`, `/usr/lib/jvm/java-*` glob (Linux), `where java` parent (Windows) | `<JAVA_HOME>` (sentinel) |
-| `{{PMD_PATH}}` (in `.cursor/rules/pmd-ruleset.mdc` etc.) | Absolute pmd binary path | `shutil.which("pmd")`, then OS-specific install paths and `pmd-bin-*` glob, then `$PMD_HOME`. **The full absolute path is baked in** so Windows users without PATH-edit access still get a working command. | `<PMD_PATH>` (sentinel) |
-| `{{WORKSPACE_PATH}}` (in `.mcp.json` filesystem-server `args`) | Target dir absolute path | `os.path.abspath(target_dir)` | n/a (always available) |
+| Placeholder in `templates/`                                    | Becomes (at init time)                                 | Detection chain                                                                                                                                                                                             | Fallback if detection / CLI flag missing                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `{{ORG_ALIAS}}`                                                | Your `target-org` alias                                | `<target>/.sf/config.json` → `target-org`, then `<target>/.sfdx/sfdx-config.json` → `defaultusername`, then `--alias` flag, then interactive prompt                                                         | `<TARGET_ORG_ALIAS>` (sentinel)                                            |
+| `{{ORG_NAME}}`                                                 | Human-readable project / org name (e.g. "Acme Health") | `--org-name` CLI flag only — no auto-detect                                                                                                                                                                 | `CURR ORG` (deliberate readable default; grep + replace later if you want) |
+| `{{JAVA_HOME}}` (in `.vscode/settings.json`)                   | Detected JDK home                                      | `/usr/libexec/java_home -v 21\|17\|11` (macOS), `$JAVA_HOME`, `/usr/lib/jvm/java-*` glob (Linux), `where java` parent (Windows)                                                                             | `<JAVA_HOME>` (sentinel)                                                   |
+| `{{PMD_PATH}}` (in `.cursor/rules/pmd-ruleset.mdc` etc.)       | Absolute pmd binary path                               | `shutil.which("pmd")`, then OS-specific install paths and `pmd-bin-*` glob, then `$PMD_HOME`. **The full absolute path is baked in** so Windows users without PATH-edit access still get a working command. | `<PMD_PATH>` (sentinel)                                                    |
+| `{{WORKSPACE_PATH}}` (in `.mcp.json` filesystem-server `args`) | Target dir absolute path                               | `os.path.abspath(target_dir)`                                                                                                                                                                               | n/a (always available)                                                     |
 
 If detection falls back to a sentinel, the script prints a warning at the end of the run with instructions on how to fix it.
 
@@ -75,7 +75,7 @@ By default, the script **skips** any file that already exists in the target dir 
 
 ## For source-repo maintainers — keeping `templates/` in sync
 
-> This fork of the kit is configured for the **IBX Provider Network** repo (alias `IBXMain`). The source-repo-specific literals live in the `PROJECT_CONFIG` block at the top of [`_sync.py`](_sync.py). If you fork this script for another repo, that block + the `SOURCES` table are the only two places you need to touch.
+> This fork of the kit is configured for the **ABC Provider Network** repo (alias `ABCMain`). The source-repo-specific literals live in the `PROJECT_CONFIG` block at the top of [`_sync.py`](_sync.py). If you fork this script for another repo, that block + the `SOURCES` table are the only two places you need to touch.
 
 The folder structure is:
 
@@ -96,20 +96,20 @@ scripts/initagentrulespy/
     └── config/pmd-ruleset.xml
 ```
 
-`templates/` is the script's source of truth at runtime. It is populated by `_sync.py`, which walks the source repo's actual rules, skills, docs, etc. and copies/transforms them into `templates/`. Crucially, `_sync.py` runs every file through a `_tokenize()` step that replaces source-repo-specific literals with placeholder tokens before writing. The substitution rules are built from the `PROJECT_CONFIG` block in [`_sync.py`](_sync.py); the current configuration (for the IBX fork) produces:
+`templates/` is the script's source of truth at runtime. It is populated by `_sync.py`, which walks the source repo's actual rules, skills, docs, etc. and copies/transforms them into `templates/`. Crucially, `_sync.py` runs every file through a `_tokenize()` step that replaces source-repo-specific literals with placeholder tokens before writing. The substitution rules are built from the `PROJECT_CONFIG` block in [`_sync.py`](_sync.py); the current configuration (for the ABC fork) produces:
 
-| Literal in source files | Placeholder in `templates/` | Notes |
-|---|---|---|
-| `/Users/maaz.rahman/Orgs/Work/IBX/IBXMain` | `{{WORKSPACE_PATH}}` | Must come before the alias rule (contains it as a substring) |
-| `/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home` | `{{JAVA_HOME}}` | |
-| `ibx-conventions.md` | `org-conventions.md` | Cross-ref fix: the file itself is rename-and-stubbed to `org-conventions.md`, so links pointing at the old name (in `docs/omnistudio/README.md`, `omniscripts.md`, `patterns.md`) get rewritten too |
-| `IBX Provider Network` | `{{ORG_NAME}}` | Longest brand literal — must run before the bare-brand catchall below |
-| `IBXMain` | `{{ORG_ALIAS}}` | Must run before the bare-brand catchall (substring) |
-| `IBX_UAT` / `IBX_QA` | `{{ORG_ALIAS}}_UAT` / `{{ORG_ALIAS}}_QA` | Sandbox alias slots — alias-shaped, not brand mentions |
-| `IBX` (standalone) | `{{ORG_NAME}}` | Catchall for the org's brand name in prose; substituted at init time to whatever `--org-name` says (default `CURR ORG`) |
-| `pmd check ` (with trailing space) | `{{PMD_PATH}} check ` | |
+| Literal in source files                                       | Placeholder in `templates/`              | Notes                                                                                                                                                                                               |
+| ------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/Users/maaz.rahman/Orgs/Work/ABC/ABCMain`                    | `{{WORKSPACE_PATH}}`                     | Must come before the alias rule (contains it as a substring)                                                                                                                                        |
+| `/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home` | `{{JAVA_HOME}}`                          |                                                                                                                                                                                                     |
+| `abc-conventions.md`                                          | `org-conventions.md`                     | Cross-ref fix: the file itself is rename-and-stubbed to `org-conventions.md`, so links pointing at the old name (in `docs/omnistudio/README.md`, `omniscripts.md`, `patterns.md`) get rewritten too |
+| `ABC Provider Network`                                        | `{{ORG_NAME}}`                           | Longest brand literal — must run before the bare-brand catchall below                                                                                                                               |
+| `ABCMain`                                                     | `{{ORG_ALIAS}}`                          | Must run before the bare-brand catchall (substring)                                                                                                                                                 |
+| `ABC_UAT` / `ABC_QA`                                          | `{{ORG_ALIAS}}_UAT` / `{{ORG_ALIAS}}_QA` | Sandbox alias slots — alias-shaped, not brand mentions                                                                                                                                              |
+| `ABC` (standalone)                                            | `{{ORG_NAME}}`                           | Catchall for the org's brand name in prose; substituted at init time to whatever `--org-name` says (default `CURR ORG`)                                                                             |
+| `pmd check ` (with trailing space)                            | `{{PMD_PATH}} check `                    |                                                                                                                                                                                                     |
 
-This is why you can edit `.cursor/rules/sf-cli-commands.mdc` (with `IBXMain` baked in for local use) and not have to think about how it lands in the templates — `_sync.py` does the swap for you, and `init.py` re-substitutes at the colleague's end.
+This is why you can edit `.cursor/rules/sf-cli-commands.mdc` (with `ABCMain` baked in for local use) and not have to think about how it lands in the templates — `_sync.py` does the swap for you, and `init.py` re-substitutes at the colleague's end.
 
 ### When to run `_sync.py`
 
@@ -126,7 +126,7 @@ Run it whenever you edit any of the following in the source repo:
 - `.mcp.json`
 - `manifest/fullpackage/*.xml`
 
-You do NOT need to run `_sync.py` after editing the three excluded rules (`find-clean-test-account.mdc`, `ibx-credentialing-workflow.mdc`, `prm-datafix-script-migration.mdc`) or the excluded skill (`.claude/skills/omnistudio/`).
+You do NOT need to run `_sync.py` after editing the three excluded rules (`find-clean-test-account.mdc`, `abc-credentialing-workflow.mdc`, `prm-datafix-script-migration.mdc`) or the excluded skill (`.claude/skills/omnistudio/`).
 
 ### Running `_sync.py`
 
@@ -142,13 +142,13 @@ After it runs, review the diff under `templates/`, commit both the source change
 
 Most files are copied verbatim. Three need special handling, declared in the `SOURCES` table at the top of [`_sync.py`](_sync.py):
 
-| Source | Target | Transform |
-|---|---|---|
-| `.cursor/rules/ibx-provider-network-data-model.mdc` | `.cursor/rules/org-data-model.mdc` | Rename + replace with stub (`ORG_DATA_MODEL_STUB` constant in `_sync.py`) |
-| `docs/omnistudio/ibx-conventions.md` | `docs/omnistudio/org-conventions.md` | Rename + replace with stub (`ORG_CONVENTIONS_STUB`) |
-| `.claude/skills/schema-lookup/SKILL.md` | (same path) | Strip the `## Org-specific gotchas (IBX Provider Network)` section to EOF (the anchor heading matches the IBX source; change to your repo's heading when forking) |
-| `docs/schema-quickref.md` | (same path) | Strip the `## High-traffic objects for IBX Provider Network` section AND the `## Common field cheat sheet` section (same — anchors match IBX's source headings) |
-| `config/pmd-ruleset.xml` | (same path) | Source file does not exist in this source repo; emit a sensible default Apex ruleset (`DEFAULT_PMD_RULESET`) |
+| Source                                              | Target                               | Transform                                                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.cursor/rules/abc-provider-network-data-model.mdc` | `.cursor/rules/org-data-model.mdc`   | Rename + replace with stub (`ORG_DATA_MODEL_STUB` constant in `_sync.py`)                                                                                         |
+| `docs/omnistudio/abc-conventions.md`                | `docs/omnistudio/org-conventions.md` | Rename + replace with stub (`ORG_CONVENTIONS_STUB`)                                                                                                               |
+| `.claude/skills/schema-lookup/SKILL.md`             | (same path)                          | Strip the `## Org-specific gotchas (ABC Provider Network)` section to EOF (the anchor heading matches the ABC source; change to your repo's heading when forking) |
+| `docs/schema-quickref.md`                           | (same path)                          | Strip the `## High-traffic objects for ABC Provider Network` section AND the `## Common field cheat sheet` section (same — anchors match ABC's source headings)   |
+| `config/pmd-ruleset.xml`                            | (same path)                          | Source file does not exist in this source repo; emit a sensible default Apex ruleset (`DEFAULT_PMD_RULESET`)                                                      |
 
 All other entries use the `"verbatim"` transform — straight `shutil.copy` semantics with the IBXMain alias still in place (the alias is substituted at `init.py` runtime, not at sync time).
 
