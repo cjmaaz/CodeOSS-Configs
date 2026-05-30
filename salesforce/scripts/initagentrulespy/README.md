@@ -15,7 +15,7 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
    python3 /path/to/initagentrulespy/init.py
    ```
 
-   That's it. The script writes ~44 files into the current directory and reports a summary.
+   That's it. The script writes ~46 files into the current directory and reports a summary.
 
 3. Open `.cursor/rules/sf-cli-commands.mdc` in your editor — that's the canonical entry point for the rules.
 
@@ -23,10 +23,11 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
 
 | Path | Count | What it is |
 |---|---:|---|
-| `.cursor/rules/` | 10 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org. `changes-doc-mandatory.mdc` enforces a **three-touchpoint workflow** (intake → pre-coding analysis → wrap-up); the pre-coding analysis step is mandatory and is where cascading sObject/trigger/flow/validation-rule impact gets mapped BEFORE any code edit. |
-| `.claude/skills/` | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules. Excludes machine-local `settings.local.json`. `changes-documentation/SKILL.md` mirrors the rule's three-touchpoint workflow as Step 0 / Step 0.5 / Steps 1-7. |
-| `docs/` | 9 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref). `docs/sf-org-mirror-retrieve.md` is a plan-first runbook: **Phase 0.0 spawns an explicit `TodoWrite` plan covering all 23 retrieve phases + 3 audit sub-phases + 2 git commits before any `sf` command runs**, so a mid-run failure is resumable. Logs rotate on every run (`.retrieve-logs/current/` for the active run, `.retrieve-logs/archive/<TS>/` for prior runs, single umbrella gitignore entry). Includes a stub `docs/omnistudio/org-conventions.md`. |
-| `changes/_templates/` | 4 | Bug-fix / story / refactor / retrieve-audit doc templates referenced by `changes-doc-mandatory`. The bug-fix / story / refactor templates carry inline `FILL UP FRONT` callouts on the architecture / design-decisions / before-after sections — those sections are spawned with the doc during pre-coding analysis (rule Step E4), not at wrap-up. The retrieve template is filled per Phase 3.4.1 (per-type todos, magnitude-ordered) + Phase 3.4.2 (cross-type synthesis with `§4.11`) of the runbook. |
+| `.cursor/rules/` | 10 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org. |
+| `.cursor/permissions.json` | 1 | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist. |
+| `.claude/skills/` | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`. |
+| `docs/` | 9 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`. |
+| `changes/_templates/` | 3 | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule. |
 | `.vscode/` | 1 | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` are intentionally NOT generated — leave those to per-project preference. |
 | `.mcp.json` + `.cursor/mcp.json` | 2 (same content) | MCP server config. Same file content is written to BOTH paths so Claude Code (reads project-root `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. The filesystem-MCP path is auto-set to your repo's absolute path. |
 | `manifest/fullpackage/` | 11 | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit). |
@@ -83,8 +84,9 @@ scripts/initagentrulespy/
 ├── README.md         ← this file
 ├── init.py           ← end-user script
 ├── _sync.py          ← maintainer-only helper
-└── templates/        ← bundled file content (~44 files mirroring final paths)
+└── templates/        ← bundled file content (~46 files mirroring final paths)
     ├── .cursor/rules/...
+    ├── .cursor/permissions.json
     ├── .claude/...
     ├── docs/...
     ├── changes/_templates/...
@@ -114,8 +116,9 @@ This is why you can edit `.cursor/rules/sf-cli-commands.mdc` (with `IBXMain` bak
 Run it whenever you edit any of the following in the source repo:
 
 - `.cursor/rules/*.mdc` (any of the 9 included rules — see the `SOURCES` table in [`_sync.py`](_sync.py))
+- `.cursor/permissions.json` (the Cursor terminal command allowlist)
 - `.claude/skills/*/SKILL.md` (any of the 5 included skills)
-- `.claude/settings.json`
+- `.claude/settings.json` (the Claude Code command allowlist)
 - `docs/sf-org-mirror-retrieve.md`, `docs/schema-quickref.md`
 - `docs/omnistudio/*.md`
 - `changes/_templates/*.md`

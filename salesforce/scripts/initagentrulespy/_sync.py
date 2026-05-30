@@ -395,6 +395,16 @@ SOURCES = [
      ".cursor/rules/org-data-model.mdc",
      ("rename-and-stub", ORG_DATA_MODEL_STUB)),
 
+    # ── .cursor/ (1 entry) — Cursor terminal command allowlist ──
+    # Repo-committed allowlist of read-only sf / git / shell command prefixes
+    # that the Cursor IDE agent auto-runs without approval (terminalAllowlist
+    # in .cursor/permissions.json). Mirrors the Claude-side .claude/settings.json
+    # allowlist below. No org-specific literals (just command prefixes), so
+    # verbatim copy — _tokenize is a no-op on it.
+    (".cursor/permissions.json",
+     ".cursor/permissions.json",
+     "verbatim"),
+
     # ── .claude/ (6 entries; settings.local.json + skills/omnistudio excluded) ──
     (".claude/settings.json",
      ".claude/settings.json",
