@@ -3,7 +3,7 @@
 > Personal configuration repository for Code OSS-based editors (Cursor, VSCodium, VS Code OSS) with comprehensive settings, profiles, and Salesforce development tools.
 
 [![Compatible with](https://img.shields.io/badge/Compatible%20with-Cursor%20%7C%20VSCodium%20%7C%20Code%20OSS-blue)](https://github.com)
-[![Last Updated](https://img.shields.io/badge/Last%20Updated-December%202025-green)](https://github.com)
+[![Last Updated](https://img.shields.io/badge/Last%20Updated-June%202026-green)](https://github.com)
 
 ## Overview
 
@@ -230,6 +230,6 @@ This configuration repository is provided as-is for personal and educational use
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: June 2026
 **Maintained by**: [Maaz Rahman](https://github.com/cjmaaz)
 **Compatible Editors**: Cursor, VSCodium, VS Code OSS, and other Code OSS-based editors
