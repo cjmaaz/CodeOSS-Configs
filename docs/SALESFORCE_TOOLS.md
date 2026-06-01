@@ -56,15 +56,15 @@ Settings and configurations optimized for Salesforce development in Code OSS-bas
 
 `auto_generate_schema.py` is the orchestrator — it walks all 12 steps end-to-end. Steps 1–9 are mandatory; steps 10–12 add usage-aware classification and the human-readable ER diagram and continue past failures (a warning is printed, but the per-object schema files from steps 1–9 are still usable on their own).
 
-| #     | Owned by                          | What it does                                                                                                                                                                          |
-| ----- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1–6   | `auto_generate_schema.py`         | Detect default org, locate the `objects/` directory, query all sObjects, filter system objects (History/Share/Feed/ChangeEvent), diff against local metadata, retrieve what's missing |
-| 7     | `generate_sf_er_schema.py`        | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (combined intermediate)                                                                                   |
-| 8     | `split_schema_by_object.py`       | Shard the combined intermediate into per-object folders + a master index, a flat search index, and category groupings                                                                 |
-| 9     | `enrich_schema_with_picklists.py` | `sf sobject describe` per object — merge in picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId  |
-| 10    | `collect_usage_stats.py`          | Composite REST `composite/batch` queries (25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                             |
-| 11    | `detect_junctions.py`             | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high`/`medium`/`low`/`schema_only`) uses Step 10 counts |
-| 12    | `generate_er.py`                  | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                          |
+| #   | Owned by                          | What it does                                                                                                                                                                            |
+| --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–6 | `auto_generate_schema.py`         | Detect default org, locate the `objects/` directory, query all sObjects, filter system objects (History/Share/Feed/ChangeEvent), diff against local metadata, retrieve what's missing   |
+| 7   | `generate_sf_er_schema.py`        | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (combined intermediate)                                                                                     |
+| 8   | `split_schema_by_object.py`       | Shard the combined intermediate into per-object folders + a master index, a flat search index, and category groupings                                                                   |
+| 9   | `enrich_schema_with_picklists.py` | `sf sobject describe` per object — merge in picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId    |
+| 10  | `collect_usage_stats.py`          | Composite REST `composite/batch` queries (25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                               |
+| 11  | `detect_junctions.py`             | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high`/`medium`/`low`/`schema_only`) uses Step 10 counts |
+| 12  | `generate_er.py`                  | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                           |
 
 ### Helper modules
 
@@ -137,7 +137,7 @@ Skips `MultiselectPicklist` fields (cannot `GROUP BY` cleanly in SOQL), objects 
 
 #### 4. `detect_junctions.py` — Step 11
 
-Structurally identifies junction objects from the combined schema + record-count enrichment. Detection is purely structural — no IBX/Health-Cloud/Vlocity-specific name patterns — so it works in any org.
+Structurally identifies junction objects from the combined schema + record-count enrichment. Detection is purely structural — no XYZ/Health-Cloud/Vlocity-specific name patterns — so it works in any org.
 
 ```bash
 # Default (with org counts)
@@ -233,13 +233,13 @@ config/schema/objects/HealthcareProviderNpi/
 
 `fields.toon` is TOON-tabular (every row has the same set of columns; every cell is a primitive). Cells are stringified for uniform column types — consumers decode per the conventions documented inline as `metadata.cell_value_decoding`:
 
-| Cell             | Decode as                                                    |
-| ---------------- | ------------------------------------------------------------ |
-| empty string     | not present / null                                           |
-| `true` / `false` | bool                                                         |
-| decimal digits   | int                                                          |
+| Cell             | Decode as                                                       |
+| ---------------- | --------------------------------------------------------------- |
+| empty string     | not present / null                                              |
+| `true` / `false` | bool                                                            |
+| decimal digits   | int                                                             |
 | `A\|B\|C`        | list of strings (polymorphic `reference_to` / `reference_path`) |
-| anything else    | string                                                       |
+| anything else    | string                                                          |
 
 ---
 
@@ -333,17 +333,17 @@ python3 /path/to/initagentrulespy/init.py
 
 ### What gets generated
 
-| Path                           | Count                                | What it is                                                                                                                                                                                                                                                            |
-| ------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.cursor/rules/`               | 10                                   | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                                                                          |
-| `.cursor/permissions.json`     | 1                                    | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                                                                |
-| `.claude/skills/`              | 5 skills + `.claude/settings.json`   | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                                                                          |
-| `docs/`                        | 9                                    | Reference docs (OmniStudio guides, sf-retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                                                                       |
-| `changes/_templates/`          | 3                                    | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                                                               |
-| `.vscode/`                     | 1                                    | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` intentionally NOT generated — leave those to per-project preference.                                                                                                               |
-| `.mcp.json` + `.cursor/mcp.json` | 2 (same content)                   | MCP server config. Same content written to both paths so Claude Code (reads `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. Filesystem-MCP path is auto-set to your repo's absolute path.                                                |
-| `manifest/fullpackage/`        | 11                                   | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit).                                                                                                                                                                  |
-| `config/pmd-ruleset.xml`       | 1                                    | Sensible default Apex PMD ruleset. Tune thresholds for your project.                                                                                                                                                                                                   |
+| Path                             | Count                              | What it is                                                                                                                                                                                                              |
+| -------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.cursor/rules/`                 | 10                                 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                           |
+| `.cursor/permissions.json`       | 1                                  | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                |
+| `.claude/skills/`                | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                          |
+| `docs/`                          | 9                                  | Reference docs (OmniStudio guides, sf-retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                        |
+| `changes/_templates/`            | 3                                  | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                |
+| `.vscode/`                       | 1                                  | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` intentionally NOT generated — leave those to per-project preference.                                                                |
+| `.mcp.json` + `.cursor/mcp.json` | 2 (same content)                   | MCP server config. Same content written to both paths so Claude Code (reads `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. Filesystem-MCP path is auto-set to your repo's absolute path. |
+| `manifest/fullpackage/`          | 11                                 | Pre-sharded full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit).                                                                                                                   |
+| `config/pmd-ruleset.xml`         | 1                                  | Sensible default Apex PMD ruleset. Tune thresholds for your project.                                                                                                                                                    |
 
 ### CLI reference
 
@@ -367,13 +367,13 @@ Options:
 
 `templates/` ships with five `{{...}}` placeholder tokens. `init.py` replaces each of them with a runtime-detected (or CLI-supplied) value:
 
-| Placeholder         | Becomes                            | Detection chain                                                                                                          |
-| ------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `{{ORG_ALIAS}}`     | Your `target-org` alias            | `.sf/config.json` → `.sfdx/sfdx-config.json` → `--alias` flag → interactive prompt → sentinel `<TARGET_ORG_ALIAS>`        |
-| `{{ORG_NAME}}`      | Human-readable project / org name  | `--org-name` CLI flag only (default `CURR ORG`)                                                                          |
-| `{{JAVA_HOME}}`     | Detected JDK home                  | `/usr/libexec/java_home -v 21\|17\|11` (macOS), `$JAVA_HOME`, `/usr/lib/jvm/java-*` glob (Linux), `where java` (Windows) |
-| `{{PMD_PATH}}`      | Absolute pmd binary path           | `shutil.which("pmd")`, then OS-specific install paths and `pmd-bin-*` glob, then `$PMD_HOME`                              |
-| `{{WORKSPACE_PATH}}`| Target dir absolute path           | `os.path.abspath(target_dir)`                                                                                            |
+| Placeholder          | Becomes                           | Detection chain                                                                                                          |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `{{ORG_ALIAS}}`      | Your `target-org` alias           | `.sf/config.json` → `.sfdx/sfdx-config.json` → `--alias` flag → interactive prompt → sentinel `<TARGET_ORG_ALIAS>`       |
+| `{{ORG_NAME}}`       | Human-readable project / org name | `--org-name` CLI flag only (default `CURR ORG`)                                                                          |
+| `{{JAVA_HOME}}`      | Detected JDK home                 | `/usr/libexec/java_home -v 21\|17\|11` (macOS), `$JAVA_HOME`, `/usr/lib/jvm/java-*` glob (Linux), `where java` (Windows) |
+| `{{PMD_PATH}}`       | Absolute pmd binary path          | `shutil.which("pmd")`, then OS-specific install paths and `pmd-bin-*` glob, then `$PMD_HOME`                             |
+| `{{WORKSPACE_PATH}}` | Target dir absolute path          | `os.path.abspath(target_dir)`                                                                                            |
 
 If detection falls back to a sentinel, the script prints a warning at the end of the run with instructions on how to fix it.
 
@@ -457,19 +457,19 @@ This repository includes two PMD rulesets optimized for different use cases:
 
 | Rule                                 | Description                                       | Both Rulesets |
 | ------------------------------------ | ------------------------------------------------- | ------------- |
-| `ApexAssertionsShouldIncludeMessage` | Test assertions must include descriptive messages | ✅            |
-| `ApexUnitTestClassShouldHaveAsserts` | Test classes must contain assertions              | ✅            |
+| `ApexAssertionsShouldIncludeMessage` | Test assertions must include descriptive messages | ✅             |
+| `ApexUnitTestClassShouldHaveAsserts` | Test classes must contain assertions              | ✅             |
 | `AvoidGlobalModifier`                | Restrict use of global keyword                    | Standard only |
-| `QueueableWithoutFinalizer`          | Detect missing finalizers in Queueable            | ✅            |
-| `DebugsShouldUseLoggingLevel`        | Debug statements must specify log level           | ✅            |
+| `QueueableWithoutFinalizer`          | Detect missing finalizers in Queueable            | ✅             |
+| `DebugsShouldUseLoggingLevel`        | Debug statements must specify log level           | ✅             |
 
 #### Code Style
 
 | Rule                       | Description                       | Both Rulesets |
 | -------------------------- | --------------------------------- | ------------- |
-| `IfElseStmtsMustUseBraces` | Enforce braces for if/else blocks | ✅            |
-| `ForLoopsMustUseBraces`    | Enforce braces for for loops      | ✅            |
-| `WhileLoopsMustUseBraces`  | Enforce braces for while loops    | ✅            |
+| `IfElseStmtsMustUseBraces` | Enforce braces for if/else blocks | ✅             |
+| `ForLoopsMustUseBraces`    | Enforce braces for for loops      | ✅             |
+| `WhileLoopsMustUseBraces`  | Enforce braces for while loops    | ✅             |
 | `ClassNamingConventions`   | Enforce PascalCase for classes    | Standard only |
 | `MethodNamingConventions`  | Enforce camelCase for methods     | Standard only |
 
@@ -478,10 +478,10 @@ This repository includes two PMD rulesets optimized for different use cases:
 | Rule                           | Description                         | Both Rulesets |
 | ------------------------------ | ----------------------------------- | ------------- |
 | `AvoidBooleanMethodParameters` | Discourage boolean parameters       | Standard only |
-| `AvoidDeeplyNestedIfStmts`     | Limit nesting depth of conditionals | ✅            |
-| `CyclomaticComplexity`         | Measure method complexity           | ✅            |
-| `NcssMethodCount`              | Limit lines of code per method      | ✅            |
-| `CognitiveComplexity`          | Measure code readability complexity | ✅            |
+| `AvoidDeeplyNestedIfStmts`     | Limit nesting depth of conditionals | ✅             |
+| `CyclomaticComplexity`         | Measure method complexity           | ✅             |
+| `NcssMethodCount`              | Limit lines of code per method      | ✅             |
+| `CognitiveComplexity`          | Measure code readability complexity | ✅             |
 
 #### Documentation
 
@@ -493,28 +493,28 @@ This repository includes two PMD rulesets optimized for different use cases:
 
 | Rule                          | Description                           | Both Rulesets |
 | ----------------------------- | ------------------------------------- | ------------- |
-| `AvoidHardcodingId`           | Prevent hardcoded Salesforce IDs      | ✅            |
-| `EmptyCatchBlock`             | Detect empty catch blocks             | ✅            |
-| `ApexCSRF`                    | Detect CSRF vulnerabilities           | ✅            |
-| `AvoidDirectAccessTriggerMap` | Prevent direct Trigger.new/old access | ✅            |
-| `EmptyIfStmt`                 | Detect empty if statements            | ✅            |
+| `AvoidHardcodingId`           | Prevent hardcoded Salesforce IDs      | ✅             |
+| `EmptyCatchBlock`             | Detect empty catch blocks             | ✅             |
+| `ApexCSRF`                    | Detect CSRF vulnerabilities           | ✅             |
+| `AvoidDirectAccessTriggerMap` | Prevent direct Trigger.new/old access | ✅             |
+| `EmptyIfStmt`                 | Detect empty if statements            | ✅             |
 
 #### Performance
 
 | Rule                          | Description                                | Both Rulesets |
 | ----------------------------- | ------------------------------------------ | ------------- |
-| `AvoidDebugStatements`        | Detect debug statements in production code | ✅            |
-| `OperationWithHighCostInLoop` | Prevent expensive operations in loops      | ✅            |
-| `OperationWithLimitsInLoop`   | Prevent governor limit violations in loops | ✅            |
+| `AvoidDebugStatements`        | Detect debug statements in production code | ✅             |
+| `OperationWithHighCostInLoop` | Prevent expensive operations in loops      | ✅             |
+| `OperationWithLimitsInLoop`   | Prevent governor limit violations in loops | ✅             |
 
 #### Security
 
 | Rule                    | Description                           | Both Rulesets |
 | ----------------------- | ------------------------------------- | ------------- |
-| `ApexBadCrypto`         | Detect weak cryptographic algorithms  | ✅            |
-| `ApexCRUDViolation`     | Detect missing CRUD/FLS checks        | ✅            |
-| `ApexSharingViolations` | Detect sharing rule violations        | ✅            |
-| `ApexSOQLInjection`     | Detect SOQL injection vulnerabilities | ✅            |
+| `ApexBadCrypto`         | Detect weak cryptographic algorithms  | ✅             |
+| `ApexCRUDViolation`     | Detect missing CRUD/FLS checks        | ✅             |
+| `ApexSharingViolations` | Detect sharing rule violations        | ✅             |
+| `ApexSOQLInjection`     | Detect SOQL injection vulnerabilities | ✅             |
 
 ---
 

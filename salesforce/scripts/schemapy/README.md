@@ -45,20 +45,20 @@ That single command runs all 12 steps end-to-end. Output:
 
 ## The 12 steps
 
-| # | Owned by | What it does |
-|---|---|---|
-| 1 | `auto_generate_schema.py` | Detect default org from `.sf/config.json` (or `.sfdx/sfdx-config.json`) |
-| 2 | `auto_generate_schema.py` | Detect the local objects directory (`force-app/main/default/objects` or first project entry in `sfdx-project.json`) |
-| 3 | `auto_generate_schema.py` | Query the org for every sObject |
-| 4 | `auto_generate_schema.py` | Filter system objects (History, Share, Feed, ChangeEvent, etc.) |
-| 5 | `auto_generate_schema.py` | Cross-check against locally retrieved object metadata |
-| 6 | `auto_generate_schema.py` | `sf project retrieve start` for any missing objects |
-| 7 | [`generate_sf_er_schema.py`](generate_sf_er_schema.py) | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (the combined intermediate) |
-| 8 | [`split_schema_by_object.py`](split_schema_by_object.py) | Shard the combined intermediate into per-object folders + indexes |
-| 9 | [`enrich_schema_with_picklists.py`](enrich_schema_with_picklists.py) | `sf sobject describe` per object — merge picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId flags |
-| 10 | [`collect_usage_stats.py`](collect_usage_stats.py) | Composite REST `composite/batch` queries (up to 25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts |
-| 11 | [`detect_junctions.py`](detect_junctions.py) | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high` / `medium` / `low` / `schema_only`) is derived from record counts collected in Step 10 |
-| 12 | [`generate_er.py`](generate_er.py) | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks |
+| #   | Owned by                                                             | What it does                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `auto_generate_schema.py`                                            | Detect default org from `.sf/config.json` (or `.sfdx/sfdx-config.json`)                                                                                                                                                      |
+| 2   | `auto_generate_schema.py`                                            | Detect the local objects directory (`force-app/main/default/objects` or first project entry in `sfdx-project.json`)                                                                                                          |
+| 3   | `auto_generate_schema.py`                                            | Query the org for every sObject                                                                                                                                                                                              |
+| 4   | `auto_generate_schema.py`                                            | Filter system objects (History, Share, Feed, ChangeEvent, etc.)                                                                                                                                                              |
+| 5   | `auto_generate_schema.py`                                            | Cross-check against locally retrieved object metadata                                                                                                                                                                        |
+| 6   | `auto_generate_schema.py`                                            | `sf project retrieve start` for any missing objects                                                                                                                                                                          |
+| 7   | [`generate_sf_er_schema.py`](generate_sf_er_schema.py)               | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (the combined intermediate)                                                                                                                      |
+| 8   | [`split_schema_by_object.py`](split_schema_by_object.py)             | Shard the combined intermediate into per-object folders + indexes                                                                                                                                                            |
+| 9   | [`enrich_schema_with_picklists.py`](enrich_schema_with_picklists.py) | `sf sobject describe` per object — merge picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId flags                                      |
+| 10  | [`collect_usage_stats.py`](collect_usage_stats.py)                   | Composite REST `composite/batch` queries (up to 25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                                                              |
+| 11  | [`detect_junctions.py`](detect_junctions.py)                         | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high` / `medium` / `low` / `schema_only`) is derived from record counts collected in Step 10 |
+| 12  | [`generate_er.py`](generate_er.py)                                   | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                                                                |
 
 Steps 1–9 are mandatory; steps 10–12 add usage-aware classification and
 the human-readable ER diagram. The orchestrator continues past a failure
@@ -165,12 +165,12 @@ python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --dry-run
 python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --schema-dir custom/schema/objects
 ```
 
-| Flag | Default | Notes |
-|---|---|---|
-| `--org` / `-o` | auto-detect | From `.sf/config.json` then `.sfdx/sfdx-config.json` |
-| `--objects` | all under `config/schema/objects/` | Comma-separated |
-| `--schema-dir` | `<project-root>/config/schema/objects` | |
-| `--dry-run` | off | |
+| Flag           | Default                                | Notes                                                |
+| -------------- | -------------------------------------- | ---------------------------------------------------- |
+| `--org` / `-o` | auto-detect                            | From `.sf/config.json` then `.sfdx/sfdx-config.json` |
+| `--objects`    | all under `config/schema/objects/`     | Comma-separated                                      |
+| `--schema-dir` | `<project-root>/config/schema/objects` |                                                      |
+| `--dry-run`    | off                                    |                                                      |
 
 > Inactive picklist values are **never** emitted — this is intentional
 > so AI agents and developers cannot accidentally suggest stale values.
@@ -193,11 +193,11 @@ python3 salesforce/scripts/schemapy/collect_usage_stats.py --org MyOrg
 python3 salesforce/scripts/schemapy/collect_usage_stats.py --objects Account,Case
 ```
 
-| Flag | Default |
-|---|---|
-| `--org` / `-o` | auto-detect |
-| `--objects` | all under `config/schema/objects/` |
-| `--schema-dir` | `<project-root>/config/schema` |
+| Flag           | Default                            |
+| -------------- | ---------------------------------- |
+| `--org` / `-o` | auto-detect                        |
+| `--objects`    | all under `config/schema/objects/` |
+| `--schema-dir` | `<project-root>/config/schema`     |
 
 Skipped automatically:
 - `MultiselectPicklist` fields (cannot `GROUP BY` cleanly in SOQL)
@@ -224,12 +224,12 @@ python3 salesforce/scripts/schemapy/detect_junctions.py --no-counts
 python3 salesforce/scripts/schemapy/detect_junctions.py --org MyOrg
 ```
 
-| Flag | Default |
-|---|---|
-| `--input` | `<project-root>/config/salesforce-er-schema.toon` |
-| `--output` | `<project-root>/config/schema/_junctions.toon` |
-| `--org` / `-o` | auto-detect |
-| `--no-counts` | off (counts on) |
+| Flag           | Default                                           |
+| -------------- | ------------------------------------------------- |
+| `--input`      | `<project-root>/config/salesforce-er-schema.toon` |
+| `--output`     | `<project-root>/config/schema/_junctions.toon`    |
+| `--org` / `-o` | auto-detect                                       |
+| `--no-counts`  | off (counts on)                                   |
 
 Confidence tiers:
 - `high` — junction record count ≥ 50% of the larger parent's count
@@ -237,7 +237,7 @@ Confidence tiers:
 - `low` — junction object has zero records in this org
 - `schema_only` — `--no-counts` was used, or count fetch failed
 
-Detection is purely structural — no IBX / Health-Cloud / Vlocity-specific
+Detection is purely structural — no XYZ / Health-Cloud / Vlocity-specific
 name patterns. Works in any Salesforce org.
 
 ### `generate_er.py` — Step 12
@@ -246,10 +246,10 @@ name patterns. Works in any Salesforce org.
 python3 salesforce/scripts/schemapy/generate_er.py
 ```
 
-| Flag | Default |
-|---|---|
-| `--input` | `<project-root>/config/schema/_junctions.toon` |
-| `--output` | `<project-root>/ER.md` |
+| Flag       | Default                                        |
+| ---------- | ---------------------------------------------- |
+| `--input`  | `<project-root>/config/schema/_junctions.toon` |
+| `--output` | `<project-root>/ER.md`                         |
 
 Pure offline — no SOQL, no `sf` calls. Emits per-confidence-tier markdown
 tables plus Mermaid `erDiagram` blocks (skipped for tiers with > 80
@@ -322,13 +322,13 @@ config/schema/objects/HealthcareProviderNpi/
 `fields.toon` cell decoding (documented inline as
 `metadata.cell_value_decoding`):
 
-| Cell | Decode as |
-|---|---|
-| empty string | not present / null |
-| `true` / `false` | bool |
-| decimal digits | int |
-| `A\|B\|C` | list of strings (polymorphic `reference_to` / `reference_path`) |
-| anything else | string |
+| Cell             | Decode as                                                       |
+| ---------------- | --------------------------------------------------------------- |
+| empty string     | not present / null                                              |
+| `true` / `false` | bool                                                            |
+| decimal digits   | int                                                             |
+| `A\|B\|C`        | list of strings (polymorphic `reference_to` / `reference_path`) |
+| anything else    | string                                                          |
 
 ---
 

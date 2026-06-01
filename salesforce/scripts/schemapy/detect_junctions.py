@@ -9,7 +9,7 @@ i.e. objects that bridge two (or more) other entities via Lookup /
 MasterDetail relationships and serve as many-to-many connectors.
 
 Detection is purely structural so the script works in any Salesforce
-org: no IBX / Health-Cloud / Vlocity-specific name patterns are used.
+org: no XYZ / Health-Cloud / Vlocity-specific name patterns are used.
 
 Algorithm:
   1. Loose candidate filter — any object with 2+ Lookup/MasterDetail
