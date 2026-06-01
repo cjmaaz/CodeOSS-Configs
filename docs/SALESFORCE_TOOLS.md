@@ -28,7 +28,7 @@ This repository contains powerful automation tools for Salesforce development:
 
 ### 2. AI-Agent Rules Bootstrap (`initagentrulespy`)
 
-Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~44 files) into any new Salesforce repo. Auto-detects `target-org`, Java home, and PMD binary path and substitutes them in.
+Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~46 files) into any new Salesforce repo. Auto-detects `target-org`, Java home, and PMD binary path and substitutes them in.
 
 ### 3. PMD Rulesets
 
@@ -326,7 +326,7 @@ Self-contained Python kit (no third-party dependencies) that materializes a cura
 
 # 2. From inside your new Salesforce repo, run:
 python3 /path/to/initagentrulespy/init.py
-# Writes ~44 files into the current directory and prints a summary.
+# Writes ~46 files into the current directory and prints a summary.
 
 # 3. Open .cursor/rules/sf-cli-commands.mdc — the canonical entry point.
 ```
@@ -379,17 +379,9 @@ If detection falls back to a sentinel, the script prints a warning at the end of
 
 > **Why placeholders?** The kit is meant to be shared. Carrying real values like a specific sf alias, an absolute workspace path, or the source org's brand name through the templates would leak personal/org info into anything a colleague clones or zips.
 
-### Source-repo maintenance
+### Shareable kit
 
-The kit also ships `_sync.py` — a maintainer-only helper that walks the source repo's actual rules / skills / docs / manifests / configs and copies them into `templates/`, running every file through a tokenization step that replaces source-repo-specific literals with the `{{...}}` placeholders.
-
-```bash
-python3 salesforce/scripts/initagentrulespy/_sync.py            # write changes
-python3 salesforce/scripts/initagentrulespy/_sync.py --check    # CI-friendly: exit 1 if drift
-python3 salesforce/scripts/initagentrulespy/_sync.py --verbose  # log every file (incl. unchanged)
-```
-
-For full maintainer details (`SOURCES` table, `_tokenize` rules, per-file transforms), see [`salesforce/scripts/initagentrulespy/README.md`](../salesforce/scripts/initagentrulespy/README.md).
+The shareable kit is just two things: `init.py` and the sibling `templates/` folder — that's all a colleague needs. `templates/` ships pre-tokenized with `{{...}}` placeholders, which `init.py` substitutes at the colleague's end. The template generator that produced `templates/` is intentionally local-only (it holds the source repo's real literals as find-replace targets) and is not part of the committed/shareable kit.
 
 ---
 
@@ -1127,8 +1119,8 @@ For comprehensive documentation on each component:
 - **AI-Agent Rules Bootstrap**: See [`salesforce/scripts/initagentrulespy/README.md`](../salesforce/scripts/initagentrulespy/README.md)
 
   - End-user TL;DR
-  - Maintainer guide (`_sync.py`, `SOURCES` table, `_tokenize` rules)
-  - Per-file transforms + how to add new files to the kit
+  - What gets generated + placeholder substitution
+  - Sharing with colleagues + troubleshooting
 
 - **Scripts Index**: See [`salesforce/scripts/README.md`](../salesforce/scripts/README.md)
 
@@ -1196,7 +1188,7 @@ Step 10 was skipped or failed — re-run `collect_usage_stats.py` then `detect_j
 
 #### "templates/ folder not found"
 
-You ran `init.py` without the sibling `templates/` folder. Either you copied just the `.py` file (copy the whole `initagentrulespy/` folder instead), or the source-repo maintainer hasn't run `_sync.py` yet.
+You ran `init.py` without the sibling `templates/` folder. Copy the whole `initagentrulespy/` folder (both `init.py` and `templates/`), not just the `.py` file.
 
 #### Sentinel `<TARGET_ORG_ALIAS>` / `<PMD_PATH>` / `<JAVA_HOME>` left in files
 

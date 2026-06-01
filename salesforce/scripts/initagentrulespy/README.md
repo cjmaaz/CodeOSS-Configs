@@ -65,7 +65,7 @@ Options:
 
 If detection falls back to a sentinel, the script prints a warning at the end of the run with instructions on how to fix it.
 
-> **Why `{{...}}` tokens instead of literal values?** The kit is meant to be shared. Carrying real values like a specific sf alias, an absolute workspace path, or the source org's brand name through the templates would leak personal/org info into anything a colleague clones or zips. The maintainer-side `_sync.py` strips those literals when writing into `templates/`, and `init.py` substitutes the placeholders at write time using values it detects in (or are passed to) the colleague's own workspace.
+> **Why `{{...}}` tokens instead of literal values?** The kit is meant to be shared. Carrying real values like a specific sf alias, an absolute workspace path, or the source org's brand name through the templates would leak personal/org info into anything a colleague clones or zips. So `templates/` ships pre-tokenized with `{{...}}` placeholders, and `init.py` substitutes them at write time using values it detects in (or are passed to) the colleague's own workspace.
 
 ### Existing files
 
@@ -73,120 +73,9 @@ By default, the script **skips** any file that already exists in the target dir 
 
 ---
 
-## For source-repo maintainers — keeping `templates/` in sync
-
-> This fork of the kit is configured for the **ABC Provider Network** repo (alias `ABCMain`). The source-repo-specific literals live in the `PROJECT_CONFIG` block at the top of [`_sync.py`](_sync.py). If you fork this script for another repo, that block + the `SOURCES` table are the only two places you need to touch.
-
-The folder structure is:
-
-```
-scripts/initagentrulespy/
-├── README.md         ← this file
-├── init.py           ← end-user script
-├── _sync.py          ← maintainer-only helper
-└── templates/        ← bundled file content (~46 files mirroring final paths)
-    ├── .cursor/rules/...
-    ├── .cursor/permissions.json
-    ├── .claude/...
-    ├── docs/...
-    ├── changes/_templates/...
-    ├── .vscode/...
-    ├── .mcp.json
-    ├── manifest/fullpackage/...
-    └── config/pmd-ruleset.xml
-```
-
-`templates/` is the script's source of truth at runtime. It is populated by `_sync.py`, which walks the source repo's actual rules, skills, docs, etc. and copies/transforms them into `templates/`. Crucially, `_sync.py` runs every file through a `_tokenize()` step that replaces source-repo-specific literals with placeholder tokens before writing. The substitution rules are built from the `PROJECT_CONFIG` block in [`_sync.py`](_sync.py); the current configuration (for the ABC fork) produces:
-
-| Literal in source files                                       | Placeholder in `templates/`              | Notes                                                                                                                                                                                               |
-| ------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/Users/maaz.rahman/Orgs/Work/ABC/ABCMain`                    | `{{WORKSPACE_PATH}}`                     | Must come before the alias rule (contains it as a substring)                                                                                                                                        |
-| `/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home` | `{{JAVA_HOME}}`                          |                                                                                                                                                                                                     |
-| `abc-conventions.md`                                          | `org-conventions.md`                     | Cross-ref fix: the file itself is rename-and-stubbed to `org-conventions.md`, so links pointing at the old name (in `docs/omnistudio/README.md`, `omniscripts.md`, `patterns.md`) get rewritten too |
-| `ABC Provider Network`                                        | `{{ORG_NAME}}`                           | Longest brand literal — must run before the bare-brand catchall below                                                                                                                               |
-| `ABCMain`                                                     | `{{ORG_ALIAS}}`                          | Must run before the bare-brand catchall (substring)                                                                                                                                                 |
-| `ABC_UAT` / `ABC_QA`                                          | `{{ORG_ALIAS}}_UAT` / `{{ORG_ALIAS}}_QA` | Sandbox alias slots — alias-shaped, not brand mentions                                                                                                                                              |
-| `ABC` (standalone)                                            | `{{ORG_NAME}}`                           | Catchall for the org's brand name in prose; substituted at init time to whatever `--org-name` says (default `CURR ORG`)                                                                             |
-| `pmd check ` (with trailing space)                            | `{{PMD_PATH}} check `                    |                                                                                                                                                                                                     |
-
-This is why you can edit `.cursor/rules/sf-cli-commands.mdc` (with `ABCMain` baked in for local use) and not have to think about how it lands in the templates — `_sync.py` does the swap for you, and `init.py` re-substitutes at the colleague's end.
-
-### When to run `_sync.py`
-
-Run it whenever you edit any of the following in the source repo:
-
-- `.cursor/rules/*.mdc` (any of the 9 included rules — see the `SOURCES` table in [`_sync.py`](_sync.py))
-- `.cursor/permissions.json` (the Cursor terminal command allowlist)
-- `.claude/skills/*/SKILL.md` (any of the 5 included skills)
-- `.claude/settings.json` (the Claude Code command allowlist)
-- `docs/sf-org-mirror-retrieve.md`, `docs/schema-quickref.md`
-- `docs/omnistudio/*.md`
-- `changes/_templates/*.md`
-- `.vscode/settings.json` (NOT `extensions.json` or `launch.json` — those are excluded)
-- `.mcp.json`
-- `manifest/fullpackage/*.xml`
-
-You do NOT need to run `_sync.py` after editing the three excluded rules (`find-clean-test-account.mdc`, `abc-credentialing-workflow.mdc`, `prm-datafix-script-migration.mdc`) or the excluded skill (`.claude/skills/omnistudio/`).
-
-### Running `_sync.py`
-
-```bash
-python3 scripts/initagentrulespy/_sync.py            # write changes
-python3 scripts/initagentrulespy/_sync.py --check    # CI-friendly: exit 1 if drift
-python3 scripts/initagentrulespy/_sync.py --verbose  # log every file (incl. unchanged)
-```
-
-After it runs, review the diff under `templates/`, commit both the source change and the regenerated `templates/` files together, so reviewers see them in one PR.
-
-### Per-file transforms
-
-Most files are copied verbatim. Three need special handling, declared in the `SOURCES` table at the top of [`_sync.py`](_sync.py):
-
-| Source                                              | Target                               | Transform                                                                                                                                                         |
-| --------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.cursor/rules/abc-provider-network-data-model.mdc` | `.cursor/rules/org-data-model.mdc`   | Rename + replace with stub (`ORG_DATA_MODEL_STUB` constant in `_sync.py`)                                                                                         |
-| `docs/omnistudio/abc-conventions.md`                | `docs/omnistudio/org-conventions.md` | Rename + replace with stub (`ORG_CONVENTIONS_STUB`)                                                                                                               |
-| `.claude/skills/schema-lookup/SKILL.md`             | (same path)                          | Strip the `## Org-specific gotchas (ABC Provider Network)` section to EOF (the anchor heading matches the ABC source; change to your repo's heading when forking) |
-| `docs/schema-quickref.md`                           | (same path)                          | Strip the `## High-traffic objects for ABC Provider Network` section AND the `## Common field cheat sheet` section (same — anchors match ABC's source headings)   |
-| `config/pmd-ruleset.xml`                            | (same path)                          | Source file does not exist in this source repo; emit a sensible default Apex ruleset (`DEFAULT_PMD_RULESET`)                                                      |
-
-All other entries use the `"verbatim"` transform — straight `shutil.copy` semantics with the IBXMain alias still in place (the alias is substituted at `init.py` runtime, not at sync time).
-
-### Adding a new file to the kit
-
-Edit [`_sync.py`](_sync.py)'s `SOURCES` list:
-
-```python
-SOURCES = [
-    ...
-    ("path/in/source/repo.mdc", "path/in/templates.mdc", "verbatim"),
-]
-```
-
-Then re-run `_sync.py`. `init.py` automatically picks up everything under `templates/` at runtime, so it doesn't need any code change.
-
-### Excluding content from a file
-
-Use `("strip-section", anchor_heading, until_heading_or_None)`:
-
-- `anchor_heading` — the `## Foo` line where stripping starts (matched by `lstrip().startswith()`).
-- `until_heading` — the next `## Bar` to STOP stripping at (kept in output). Pass `None` to strip to EOF.
-
-For multiple strips in one file: `("strip-section-multi", [(anchor1, until1), (anchor2, until2)])`.
-
-### CI safeguard
-
-To make sure `templates/` doesn't drift from the source rules, add this to your CI:
-
-```yaml
-- run: python3 scripts/initagentrulespy/_sync.py --check
-```
-
-It exits 1 if any template file is out of date.
-
----
-
 ## Sharing with colleagues
+
+The shareable kit is just two things: `init.py` and the sibling `templates/` folder. That's all a colleague needs.
 
 Three options, in order of preference:
 
@@ -196,11 +85,13 @@ Three options, in order of preference:
 
 The script has zero runtime dependencies on the source repo. As long as your colleague has Python 3.9+ and the `templates/` folder, it works.
 
+> The template generator that produced `templates/` is intentionally local-only and not part of the shareable kit — `templates/` ships pre-tokenized with `{{...}}` placeholders that `init.py` substitutes at the colleague's end.
+
 ---
 
 ## Troubleshooting
 
-**"templates/ folder not found"** — You ran `init.py` without the sibling `templates/` folder. Either you copied just the `.py` file (copy the whole `initagentrulespy/` folder instead), or the source-repo maintainer hasn't run `_sync.py` yet.
+**"templates/ folder not found"** — You ran `init.py` without the sibling `templates/` folder. Copy the whole `initagentrulespy/` folder (both `init.py` and `templates/`), not just the `.py` file.
 
 **Sentinel `<TARGET_ORG_ALIAS>` left in files** — The script couldn't find a `target-org` for your repo. Run:
 ```bash

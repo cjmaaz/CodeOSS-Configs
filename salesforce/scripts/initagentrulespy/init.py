@@ -12,8 +12,8 @@ each file into a target directory, replacing five placeholder tokens:
   • {{PMD_PATH}}         → detected PMD binary absolute path
   • {{WORKSPACE_PATH}}   → target dir absolute path (used in .mcp.json)
 
-The placeholders are baked into templates/ by `_sync.py` (the maintainer
-helper); end users never see the original literal values, so nothing
+The placeholders are baked into templates/ ahead of time by the
+maintainer; end users never see the original literal values, so nothing
 personal or org-specific leaks through the kit.
 
 Detection strategy:
@@ -55,12 +55,14 @@ import sys
 from pathlib import Path
 
 # ────────────────────────────────────────────────────────────────────────────
-# Placeholder tokens (set by _sync.py when populating templates/) and the
-# sentinel values that get baked in if runtime detection fails.
+# Placeholder tokens (baked into templates/ ahead of time by the
+# maintainer) and the sentinel values that get used if runtime detection
+# fails.
 #
-# The script does NOT carry any source-repo-specific literals — every
+# This script does NOT carry any source-repo-specific literals — every
 # personal / org-specific value lived in the maintainer's source files but
-# was tokenized away by _sync.py before reaching templates/.
+# was tokenized away into `{{...}}` placeholders before reaching
+# templates/, so what ships to colleagues is fully generic.
 # ────────────────────────────────────────────────────────────────────────────
 
 # Placeholder tokens that appear in templates/ files.
@@ -323,8 +325,9 @@ def main() -> int:
     if not templates_dir.is_dir():
         raise SystemExit(
             f"✗ templates/ folder not found at {templates_dir}. "
-            f"If you're the source-repo maintainer (the one running _sync.py), "
-            f"run `python3 _sync.py` to populate it."
+            f"Make sure you copied the whole `initagentrulespy/` folder "
+            f"(both init.py AND the sibling templates/ directory), not just "
+            f"init.py on its own."
         )
 
     # Validate target dir.
