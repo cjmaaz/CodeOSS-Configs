@@ -5,7 +5,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@salesforce/mcp@0.30.8",
+        "@salesforce/mcp@0.30.13",
         "--orgs",
         "DEFAULT_TARGET_ORG",
         "--toolsets",

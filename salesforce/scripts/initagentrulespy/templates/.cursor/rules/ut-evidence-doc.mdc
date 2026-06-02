@@ -1,0 +1,59 @@
+---
+description: Create UT / UAT test-evidence documentation as a minimal, screenshot-heavy before/after walkthrough that proves each acceptance criterion end-to-end against a real run of the process under test. Apply when asked for a UT doc, UAT doc, test evidence, QA walkthrough, or screenshot proof that each AC works.
+alwaysApply: false
+---
+
+# UT / test-evidence documentation (before -> after walkthrough)
+
+A UT (user/unit test) evidence doc PROVES each acceptance criterion (AC) works by running the real process end-to-end and screenshotting the state before and after. It is evidence, not prose — favour screenshots over explanation.
+
+Stack-agnostic. "The process under test" = whatever transforms the data: a batch / scheduled job, a queue or cron worker, an ETL pipeline, an API endpoint, a UI flow. "Record" = the entity it consumes or produces. Companion operational skill: [`.claude/skills/ut-evidence-doc/SKILL.md`](../../.claude/skills/ut-evidence-doc/SKILL.md).
+
+## When to apply
+
+Asked to create a "UT doc", "UAT doc", "test evidence", "QA walkthrough", or "screenshot proof that each AC works".
+
+## Document shape (minimal, screenshot-heavy)
+
+- One `#` title + ONE intro line (environment + how records were staged). NO "Purpose", "Components", "How to reproduce", or "Results summary" sections.
+- One `##` per scenario: `AC1`, `AC2`, ... Each scenario = ONE sentence (the condition + expected outcome) + the before screenshots + the after screenshots, each with a short caption.
+- Per scenario, capture:
+  - BEFORE: the input record the process will pick up, and the single detail that decides the outcome (the in-scope field for a happy path, or the missing/invalid data for a negative case).
+  - AFTER: the record the process created, the output it produced (or the logged error for a negative case), and that record appearing in the downstream report/list.
+- Store at `docs/ut/<work-id>/<slug>.md` with a sibling `assets/` folder. Name screenshots predictably: `ac1-before-<what>.png`, `ac1-after-<what>.png`.
+- Optionally export a PDF beside the markdown.
+
+## Staging + run protocol
+
+1. For each scenario, FIND a real record the process will pick up. If none qualifies, MODIFY one so it does (e.g. set the due/eligibility field). Prefer real records over synthetic test data.
+2. For negative scenarios with no natural record, FORCE the gap on a real record (deactivate/blank the required data).
+3. SNAPSHOT everything you modify (persist the original values to a snapshot record/file) so it can be restored.
+4. Confirm eligibility and blast radius with a query BEFORE running — only your intended records should get processed.
+5. Capture ALL before screenshots, run the process ONCE, then capture ALL after screenshots.
+6. VERIFY outcomes with queries (counts, IDs, error codes) before relying on any screenshot.
+7. ROLL BACK staged/forced changes from the snapshot; LEAVE the process-created records (the evidence) in place.
+
+## Screenshot capture (tool-agnostic)
+
+- Open the app with an auto-login/session URL, go to each record, take a full-page screenshot, save it with the predictable name, and copy it into the repo `assets/` folder.
+- Virtualized or iframed lists (reports, infinite-scroll grids) often can't be searched/sorted via automation. Instead scroll the list's scroll container programmatically until the target row renders, then screenshot. Newest-first sorts usually surface a just-created record at the top of its group.
+
+## Commit (two-commit, explicit staging)
+
+1. Commit 1 — artifacts: the staging/rollback scripts + the UT doc + screenshots + PDF. Stage each path explicitly; never blanket-add a directory.
+2. Commit 2 — backfill: update the living/feature doc to link the UT doc + PDF and reference commit 1's short hash.
+
+Only commit when the user asks.
+
+## Anti-patterns
+
+- Adding "Purpose / Components / Reproduce / Summary" sections — keep it to AC header + one line + screenshots.
+- Synthetic dummy data when a real eligible record exists.
+- Modifying real records without a snapshot + rollback.
+- Calling the underlying function directly instead of running the actual process the user ships.
+- A screenshot of a 1000-row report that does not actually show the target row — surface it first.
+- "See attached screenshot" as the AC description — state the condition + expected outcome in words too.
+
+## Adapting to other projects
+
+This rule names no project, org, language, or framework. Map the generic terms to your stack: "process under test" -> your batch/job/endpoint; "record" -> your entity/row/document; "report/list" -> your downstream view; "query" -> your DB/API read; "auto-login URL" -> your app's session link. Keep `docs/ut/` at the repo root or adjust the path consistently in this rule and the companion skill.

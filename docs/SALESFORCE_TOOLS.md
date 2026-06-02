@@ -28,7 +28,7 @@ This repository contains powerful automation tools for Salesforce development:
 
 ### 2. AI-Agent Rules Bootstrap (`initagentrulespy`)
 
-Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~46 files) into any new Salesforce repo. Auto-detects `target-org`, Java home, and PMD binary path and substitutes them in.
+Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~48 files) into any new Salesforce repo. Auto-detects `target-org`, Java home, and PMD binary path and substitutes them in.
 
 ### 3. PMD Rulesets
 
@@ -326,7 +326,7 @@ Self-contained Python kit (no third-party dependencies) that materializes a cura
 
 # 2. From inside your new Salesforce repo, run:
 python3 /path/to/initagentrulespy/init.py
-# Writes ~46 files into the current directory and prints a summary.
+# Writes ~48 files into the current directory and prints a summary.
 
 # 3. Open .cursor/rules/sf-cli-commands.mdc — the canonical entry point.
 ```
@@ -335,9 +335,9 @@ python3 /path/to/initagentrulespy/init.py
 
 | Path                             | Count                              | What it is                                                                                                                                                                                                              |
 | -------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.cursor/rules/`                 | 10                                 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                           |
+| `.cursor/rules/`                 | 11                                 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org, and `ut-evidence-doc.mdc` for screenshot-based UT/UAT test-evidence docs.                                  |
 | `.cursor/permissions.json`       | 1                                  | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                |
-| `.claude/skills/`                | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                          |
+| `.claude/skills/`                | 6 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                          |
 | `docs/`                          | 9                                  | Reference docs (OmniStudio guides, sf-retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                        |
 | `changes/_templates/`            | 3                                  | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                |
 | `.vscode/`                       | 1                                  | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` intentionally NOT generated — leave those to per-project preference.                                                                |

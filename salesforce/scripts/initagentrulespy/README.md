@@ -15,7 +15,7 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
    python3 /path/to/initagentrulespy/init.py
    ```
 
-   That's it. The script writes ~46 files into the current directory and reports a summary.
+   That's it. The script writes ~48 files into the current directory and reports a summary.
 
 3. Open `.cursor/rules/sf-cli-commands.mdc` in your editor — that's the canonical entry point for the rules.
 
@@ -23,9 +23,9 @@ The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_A
 
 | Path                             |                              Count | What it is                                                                                                                                                                                                                                       |
 | -------------------------------- | ---------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.cursor/rules/`                 |                                 10 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org.                                                                                                                                    |
+| `.cursor/rules/`                 |                                 11 | Cursor rules (always-applied + on-demand). Includes a stub `org-data-model.mdc` you fill in for your own org, and `ut-evidence-doc.mdc` for screenshot-based UT/UAT test-evidence docs.                                                           |
 | `.cursor/permissions.json`       |                                  1 | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                                         |
-| `.claude/skills/`                | 5 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                                                   |
+| `.claude/skills/`                | 6 skills + `.claude/settings.json` | Claude Code skills mirroring the rules, plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                                                   |
 | `docs/`                          |                                  9 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref). Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                                                 |
 | `changes/_templates/`            |                                  3 | Bug-fix / story / refactor doc templates referenced by the `changes-doc-mandatory` rule.                                                                                                                                                         |
 | `.vscode/`                       |                                  1 | `settings.json` only (with detected Java home). `extensions.json` and `launch.json` are intentionally NOT generated — leave those to per-project preference.                                                                                     |
