@@ -1,0 +1,148 @@
+/* Base Body Styling */
+body {
+  font-family: Barlow, sans-serif;
+  line-height: 1.6;
+  padding: 20px;
+  margin: 0;
+  color: #333;
+}
+
+/* Links */
+a {
+  color: #0366d6;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Code Blocks (Pre-formatted text) */
+pre {
+  background: #f6f8fa;
+  /* Light, printer-friendly gray */
+  border: 1px solid #e1e4e8;
+  /* Subtle border */
+  border-radius: 4px;
+  margin: 1.5em 0;
+  padding: 16px;
+  /* Gives the code room to breathe */
+  overflow-x: auto;
+  /* Enables horizontal scrolling for long lines */
+}
+
+/* Base Code Font */
+code {
+  font-family: Cascadia Code, 'Fira Code', Consolas, Monaco, monospace;
+  font-size: 0.9em;
+}
+
+/* Code block specific rules */
+pre code {
+  color: #24292e;
+  /* Dark text for readability on light background */
+  white-space: pre;
+  word-wrap: normal;
+}
+
+/* Inline Code */
+:not(pre)>code {
+  background: #f0f0f0;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  color: #e83e8c;
+}
+
+/* Images */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+}
+
+/* Tables */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.5em 0;
+}
+
+th,
+td {
+  border: 1px solid #ddd;
+  padding: 10px 12px;
+}
+
+th {
+  background-color: #f4f4f4;
+  text-align: left;
+}
+
+/* Blockquotes */
+blockquote {
+  border-left: 4px solid #dfe2e5;
+  padding: 0 1em;
+  margin: 1.5em 0;
+  color: #6a737d;
+}
+
+/* Headings */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: #2c3e50;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 2.2em;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 0.3em;
+}
+
+h2 {
+  font-size: 1.8em;
+  border-bottom: 1px solid #eee;
+  /* Added a subtle line for h2 as well */
+  padding-bottom: 0.3em;
+}
+
+h3 {
+  font-size: 1.4em;
+}
+
+/* --- PRINT OPTIMIZATION --- */
+@media print {
+  body {
+    padding: 0;
+    color: #000;
+    /* Pure black text for sharper printing */
+  }
+
+  /* Force borders to print and prevent awkward page breaks */
+  pre,
+  blockquote,
+  table,
+  img {
+    page-break-inside: avoid;
+  }
+
+  pre {
+    border: 1px solid #999;
+    white-space: pre-wrap;
+    /* Allow wrapping on paper so code isn't cut off */
+  }
+
+  /* Keep headings attached to their following paragraphs */
+  h1,
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+}
