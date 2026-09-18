@@ -104,7 +104,7 @@ Custom CSS and JavaScript for enhanced IDE appearance including:
 Automated Salesforce development utilities:
 
 - **Schema Pipeline (`schemapy`)**: 12-step pipeline that retrieves metadata, emits a TOON-encoded ER schema, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders an `ER.md` Mermaid diagram
-- **AI-Agent Rules Bootstrap (`initagentrulespy`)**: One-command Python kit that drops ~52 curated rule / skill / doc / manifest / config files into any new Salesforce repo without touching project scripts (auto-detects target-org, Java home, and PMD path)
+- **AI-Agent Rules Bootstrap (`initagentrulespy`)**: One-command Python kit that drops ~58 curated rule / skill / doc / script / manifest / config files into any new Salesforce repo without touching project scripts (auto-detects target-org, API version, Java home, and PMD path)
 - **Git Change Viewer (`git-change-viewer`)**: Local-only Node + Vite web app that merges git changes from `changes/*.md` docs and hand-picked commits into one diff view, then exports a Salesforce `package.xml`
 - **PMD Rulesets**: Static code analysis rulesets for Apex quality and security
 - **MCP Wrapper**: Salesforce CLI integration for AI coding assistants

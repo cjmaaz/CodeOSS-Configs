@@ -6,7 +6,7 @@ detailed README — start there once you know which one you want.
 | Kit | Purpose | README |
 |---|---|---|
 | [`schemapy/`](schemapy/) | **(Python)** 12-step pipeline that retrieves Salesforce metadata, generates a TOON-encoded ER schema (`config/salesforce-er-schema.toon`), splits it into per-object folders under `config/schema/`, enriches every field with picklist values / formulas / lookups, then layers in live record-count usage stats, junction detection, and an `ER.md` diagram. | [`schemapy/README.md`](schemapy/README.md) |
-| [`initagentrulespy/`](initagentrulespy/) | **(Python)** Bootstrap kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set (~53 files) into any new Salesforce repo. Auto-detects `target-org`, API version, Java home, and PMD binary path and substitutes those into the generated files so the rules work out of the box on macOS, Linux, and Windows. | [`initagentrulespy/README.md`](initagentrulespy/README.md) |
+| [`initagentrulespy/`](initagentrulespy/) | **(Python)** Bootstrap kit that materializes a curated AI-agent rule, skill, doc, script, manifest, and config set (~58 files) into any new Salesforce repo. Auto-detects `target-org`, API version, Java home, and PMD binary path and substitutes those into the generated files so the rules work out of the box on macOS, Linux, and Windows. | [`initagentrulespy/README.md`](initagentrulespy/README.md) |
 | [`git-change-viewer/`](git-change-viewer/) | **(Node + Vite)** Local-only web app that combines git changes from two sources — ticked `changes/*.md` docs (auto-extracting their referenced commit hashes) and hand-picked commits from history — into one GitHub-style diff view, then exports the changed files to a Salesforce `package.xml` (with optional `destructiveChanges.xml`). | [`git-change-viewer/README.md`](git-change-viewer/README.md) |
 
 ## Quick Start
@@ -35,6 +35,12 @@ Drops `.cursor/rules/`, `.cursor/permissions.json`, `.cursor/sandbox.json`,
 `manifest/` (master + 11 shards), and `config/` (`pmd-ruleset.xml` +
 `schema/README.md`) into the current directory, plus an
 `.initagentrulespy-manifest.json` marker recording what was installed.
+
+`docs/` carries the design-doc templates (LLD, questions-and-KT, walkthrough,
+step-by-step AC test), the `docs/diagram-conventions.md` mermaid style those
+diagrams follow, the OmniStudio references, and `docs/org-mirror/` — a full-org
+retrieve runbook plus three shell scripts that land executable (`755`) and are
+re-checked on every run.
 
 Files you own are respected rather than clobbered. `.gitignore` is merged
 append-only and `.vscode/settings.json` property-by-property, while

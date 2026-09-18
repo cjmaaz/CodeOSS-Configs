@@ -1,6 +1,6 @@
 # initagentrulespy — bootstrap AI-agent rules into a new Salesforce repo
 
-A self-contained Python kit that materializes a curated AI-agent rule, skill, doc, manifest, and config set into any new Salesforce repo. The script auto-detects the target workspace's `target-org` alias, Java home, and PMD binary path, and substitutes those values into the generated files so they work out of the box on macOS, Linux, and Windows (including locked-down Windows where editing PATH/env-vars isn't allowed).
+A self-contained Python kit that materializes a curated AI-agent rule, skill, doc, script, manifest, and config set into any new Salesforce repo. The script auto-detects the target workspace's `target-org` alias, API version, Java home, and PMD binary path, and substitutes those values into the generated files so they work out of the box on macOS, Linux, and Windows (including locked-down Windows where editing PATH/env-vars isn't allowed).
 
 The bundled `templates/` folder uses `{{...}}` placeholder tokens (e.g. `{{ORG_ALIAS}}`, `{{ORG_NAME}}`, `{{JAVA_HOME}}`) instead of any real org-specific values, so nothing personal or org-specific leaks through the kit when you share it with colleagues. The human-readable project / org name (`{{ORG_NAME}}`) defaults to `CURR ORG` — pass `--org-name 'Your Project Name'` to substitute something nicer.
 
@@ -35,7 +35,9 @@ It cannot detect what it cannot derive: your org's object, field, and component 
 | **Merged** | Combined with your existing file instead of replacing it, even under `--force`. Pass `--replace-merged` to overwrite instead. | `.vscode/settings.json` (property-by-property), `.gitignore` (append-only) |
 | **Project-only** | The kit never reads or writes these | `force-app/`, `config/schema/*.toon`, `changes/`, `docs/lld/`, `docs/ut/`, `scripts/`, org-measured manifests such as the `fullpackage-customfield-shard-*.xml` files |
 
-Org-measured artifacts stay project-only on purpose. The CustomField shard manifests, for instance, list well over a thousand literal object API names from one specific org — shipping them would be the single largest leak in the kit. `docs/sf-org-mirror-retrieve.md` documents how to generate them for whatever org you are pointed at.
+Org-measured artifacts stay project-only on purpose. The CustomField shard manifests, for instance, list well over a thousand literal object API names from one specific org — shipping them would be the single largest leak in the kit. `docs/org-mirror/README.md` documents how to generate them for whatever org you are pointed at.
+
+A fifth class sits outside all of this: files that appear in `templates/` without anyone adding them. `.DS_Store`, `Thumbs.db`, `desktop.ini`, `__pycache__/`, `.pytest_cache/`, `.ipynb_checkpoints/`, and `*.pyc` are skipped by the template walk. They are gitignored, so they never surface in a diff or a review, but the walk is filesystem-based rather than git-based — without the filter they would be materialized into every bootstrapped project and inflate the file count.
 
 ---
 
@@ -48,7 +50,7 @@ Org-measured artifacts stay project-only on purpose. The CustomField shard manif
    python3 /path/to/initagentrulespy/init.py
    ```
 
-   That's it. The script writes ~53 files (the 52-file kit plus an `.initagentrulespy-manifest.json` install-tracking marker) into the current directory and reports a summary.
+   That's it. The script writes ~58 files (the 57-file kit plus an `.initagentrulespy-manifest.json` install-tracking marker) into the current directory and reports a summary.
 
 3. Open `.cursor/rules/sf-cli-commands.mdc` in your editor — that's the canonical entry point for the rules.
 
@@ -56,11 +58,11 @@ Org-measured artifacts stay project-only on purpose. The CustomField shard manif
 
 | Path                             |                              Count | What it is                                                                                                                                                                                                                                       |
 | -------------------------------- | ---------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.cursor/rules/`                 |                                  9 | Cursor rules (always-applied + on-demand). Consolidated set: `adversarial-review.mdc` (mandatory parallel multi-critic Gate A/Gate B review protocol), `apex-development.mdc` (deploy / validate / test / PMD / log-verify / formatting), `documentation-workflow.mdc` (intake → LLD → wrap-up + UT evidence), `retrieve-before-edit.mdc` (org-is-source-of-truth mandate), plus `omnistudio-deploy-cache-bust`, `salesforce-schema-validation`, `sf-cli-commands`, `python-selenium-automation`, and a stub `org-data-model.mdc` you fill in for your own org.                |
+| `.cursor/rules/`                 |                                  9 | Cursor rules (always-applied + on-demand). Consolidated set: `adversarial-review.mdc` (mandatory parallel multi-critic Gate A/Gate B review protocol), `apex-development.mdc` (deploy / validate / test / PMD / log-verify / formatting), `documentation-workflow.mdc` (intake → LLD → wrap-up + step-by-step AC test evidence), `retrieve-before-edit.mdc` (org-is-source-of-truth mandate), plus `omnistudio-deploy-cache-bust`, `salesforce-schema-validation`, `sf-cli-commands`, `python-selenium-automation`, and a stub `org-data-model.mdc` you fill in for your own org.                |
 | `.cursor/permissions.json`       |                                  1 | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                                         |
 | `.cursor/sandbox.json`           |                                  1 | Cursor agent sandbox config — workspace read/write plus both home-level and workspace-local `.sf`, `.sfdx`, `.config/sf`, and `.cache` paths, with a deny-by-default network policy that allowlists Salesforce domains. Paths are auto-filled at init. |
 | `.claude/skills/`                | 6 skills + `.claude/settings.json` | Claude Code skills mirroring the rules (`adversarial-review`, `apex-development`, `documentation-workflow`, `retrieve-before-edit`, `omnistudio-deploy-cache-bust`, `schema-lookup`), plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`.                                                                                   |
-| `docs/`                          |                                 12 | Reference docs (OmniStudio guides, sf retrieve playbook, schema-quickref) plus `docs/_templates/` design-doc templates (LLD, open-questions-and-KT, session walkthrough) used by the `documentation-workflow` LLD step. Includes a stub `docs/omnistudio/org-conventions.md`.                                                                                                                 |
+| `docs/`                          |                                 17 | Reference docs plus templates and the org-mirror runbook. `docs/_templates/` holds 4 design-doc templates (LLD, open-questions-and-KT, session walkthrough, step-by-step AC test) used by the `documentation-workflow` rule; `docs/diagram-conventions.md` defines the component-scoped mermaid style those diagrams must follow; `docs/org-mirror/` is the full-org retrieve runbook plus its 3 executable shell scripts; `docs/omnistudio/` (7) and `docs/schema-quickref.md` are reference material. Includes a stub `docs/omnistudio/org-conventions.md`. |
 | `changes/_templates/`            |                                  4 | Bug-fix / story / refactor / retrieve-audit doc templates referenced by the `documentation-workflow` rule.                                                                                                                                       |
 | `config/schema/`                 |                                  1 | `README.md` documenting the per-object TOON schema-file layout that a separately provisioned `scripts/schemapy/` pipeline generates and `salesforce-schema-validation` reads. The schema TOON files themselves are generated per-org, not shipped. |
 | `.vscode/`                       |                                  1 | `settings.json` only (with detected Java home). Existing top-level properties are merged: missing properties are appended, while matching properties are replaced and their previous values retained as comments. `extensions.json` and `launch.json` are not generated. |
@@ -153,6 +155,8 @@ Each destructive flag names every file it is about to discard before anything is
 
 If detection falls back to a sentinel, the script prints a warning at the end of the run with instructions on how to fix it.
 
+Only text files are substituted (`.md`, `.mdc`, `.json`, `.xml`, `.txt`, `.yml`, `.yaml`). The shell scripts under `docs/org-mirror/` are deliberately excluded: they ship byte-identical, reading their org alias from the environment and everything else from the run's generated files, so there is nothing in them to replace.
+
 > **Why `{{...}}` tokens instead of literal values?** The kit is meant to be shared. Carrying real values like a specific sf alias, an absolute workspace path, or the source org's brand name through the templates would leak personal/org info into anything a colleague clones or zips. So `templates/` ships pre-tokenized with `{{...}}` placeholders, and `init.py` substitutes them at write time using values it detects in (or are passed to) the colleague's own workspace.
 
 ### Existing files & re-runs
@@ -176,6 +180,8 @@ A fresh run into an empty (or kit-free) directory just writes every file. On a *
   - `--ignore-conflicts` — writes missing files directly into the target, leaves every conflicting existing path unchanged, and prints a consolidated conflict list at the end. `--missing-only` remains as an alias.
 
 Use `--dry-run` first to preview any of these.
+
+**Executable bits are repaired every run.** The `docs/org-mirror/*.sh` scripts must land at mode `755`. The mode is applied to the temp file *before* the atomic replace, so the visible path never briefly exists as non-executable. Because a file whose content already matches is skipped by the write planner, permissions are then re-checked across every managed path rather than only the ones written — a script that lost its executable bit to a zip round-trip, a copy through a filesystem without mode support, or a stray `chmod` is repaired and reported as `✓ mode 755:`. Mode is not content, so this runs outside the content transaction and is idempotent. The runbook still invokes the scripts through `bash`, so they work even where the bit did not survive.
 
 **Install safety.** Writes are atomic and transactional — a target lock (`.initagentrulespy.lock`) blocks concurrent runs, a journal (`.initagentrulespy-transactions/`) rolls the whole run back on any failure or interruption, and the `.initagentrulespy-manifest.json` marker records what was installed so later `--update` runs can distinguish your edits from stale kit files.
 
