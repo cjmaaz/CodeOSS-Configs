@@ -2,7 +2,7 @@
   TEMPLATE: Bug-fix changes doc
   =============================
   Copy this file to changes/<short-kebab-slug>.md and fill it in.
-  Delete guidance comments, but KEEP the `Mandatory adversarial Gate B`
+  Delete guidance comments, but KEEP the `Adversarial Gate B`
   section in full (heading, all three tables, and the bold summary lines).
   It is the review's audit trail, not guidance.
   Strip any sections that genuinely do not apply (note "n/a" rather than deleting
@@ -21,6 +21,9 @@
 **Story / ticket:** [<TRACKER-NNN>](<url>) — <one-line summary> (or "ad-hoc bug found by <person> on <date>" if no ticket)
 **Code commit(s):** [`<short-hash>`](#15-deploy-ids-and-commit-references) (latest; full list in section 15)
 **Manifest:** [`manifest/<feature>.xml`](../manifest/<feature>.xml) (the deploy manifest used; XML inlined in section 15)
+**Step-by-step test evidence:**
+- `<test-org-alias>` — [`docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md`](../docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md) · initial `<hash / pending>` · verified `<hash / pending tester>`
+- `<additional-org-alias>` — `<guide + initial/verified hashes, repeat as needed>` / n/a
 **Status:** Resolved / Resolved for <subset>, pending observation on <other subset> / In progress
 **Adversarial Gate B:** Pending / PASS / PASS_WITH_FINDINGS / BLOCK
 **Implementation revision reviewed:** `<base SHA..HEAD + explicit changed-path list>`
@@ -95,8 +98,12 @@
   Reference the canonical architecture doc if one already exists rather than
   re-explaining (e.g. "see docs/flows/<flow>.md for the full call tree").
 
+  Diagrams follow docs/diagram-conventions.md: ONE SUBGRAPH PER COMPONENT
+  (not per logical phase), a legend line immediately above the fence, and
+  colour for STATE only — component type is the emoji's job.
+
   ──────────────────────────────────────────────────────────────────────
-  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E5 — keep it a summary that links to the LLD)
+  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E6 — keep it a summary that links to the LLD)
   ──────────────────────────────────────────────────────────────────────
   This section is the OUTPUT of the pre-coding analysis protocol (rule
   steps E1-E3), not a wrap-up afterthought. Spawn the preliminary
@@ -106,10 +113,21 @@
   the original sketch — but never start with it blank.
 -->
 
+**Legend — every dashed box is one component.** <only the symbols used> 🔷 Flow · 🟢 LWC renderer · 🟣 Apex · 📄 org data. Green = working, amber = the defect.
+
 ```mermaid
 flowchart TD
-  Caller[Caller / entry point] --> Component[Affected component]
-  Component --> Downstream[Downstream call]
+    subgraph C1["🟣 APEX · <ClassName> — <one-line role>"]
+        E["<entry point>"] --> BUG["<b><the defective element></b><br/><what it does · what it omits><br/>⚠ <why that is the bug>"]
+    end
+
+    subgraph C2["🔷 FLOW · <FlowName> — <one-line role>"]
+        D["<downstream element>"]
+    end
+
+    BUG --> D
+
+    style BUG fill:#fff3cd,stroke:#b8860b,stroke-width:2px
 ```
 
 | Type / variant | Path | Status today |
@@ -194,13 +212,19 @@ Diff of the triggering change (if known):
 
 The cascade in the failing run (if multi-family):
 
+**Legend.** <only the symbols used> 🔷 Flow · 🟣 Apex · 📄 org data. Green = worked, amber = knock-on damage, red = where it fails.
+
 ```mermaid
 flowchart TD
-  S1[Step 1 - description<br/>writes field X ok on insert]
-  S2[Step 2 - description<br/>tries to update field X]
-  S2_FAIL[Salesforce rejects: <reason>]
-  Cascade[Downstream nulls / rollback]
-  S1 --> S2 --> S2_FAIL --> Cascade
+    S1["<step 1 — component><br/>writes <field> on insert · OK"]
+    S2["<step 2 — component><br/>tries to update <field>"]
+    S2_FAIL["<b>Salesforce rejects</b><br/>⚠ <the actual error code + message>"]
+    Cascade["<downstream effect><br/>nulls · rollback · orphaned rows"]
+    S1 --> S2 --> S2_FAIL --> Cascade
+
+    style S1 fill:#d9f2d9,stroke:#080
+    style S2_FAIL fill:#ffd9d9,stroke:#c00,stroke-width:2px
+    style Cascade fill:#fff3cd,stroke:#b8860b
 ```
 
 ---
@@ -389,6 +413,49 @@ sf project deploy start \
 | AC1 | <test/scenario> | <record/log/screenshot/query> | yes/no |
 | AC2 | <test/scenario> | <evidence> | yes/no |
 
+### Acceptance-criteria visual delta
+
+<!--
+  For every visually observable AC, link to the step-by-step guide and show
+  real before/current screenshots plus paired component-scoped Mermaid
+  excerpts. Keep node IDs stable across both fences and link to the full LLD.
+  If no safe runtime-before exists, label it "source-backed baseline only".
+  Data-only ACs: "n/a — no visual delta"; keep their evidence in the table.
+-->
+
+<a id="<scenario-anchor>-visual-delta"></a>
+#### <scenario-id> — <visible defect corrected>
+
+[Run the detailed `<scenario-id>` checklist](../docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md#<scenario-anchor>-test). Full diagrams: [current](../docs/lld/<work-id>-<slug>.md#4-current-behavior-as-built) · [proposed](../docs/lld/<work-id>-<slug>.md#73-where-it-plugs-in).
+
+Choose a real screenshot or `n/a — source-backed baseline only`:
+
+![Before — <test-org-alias>, <record label/id>, <defect>](../docs/ut/<work-id>/assets/<alias-slug>/<scenario-anchor>-before-<what>.png)
+
+**Before excerpt. Legend:** 🔷 Flow · 🟢 LWC. Amber = reproduced defect.
+
+```mermaid
+flowchart TD
+    subgraph C1["<SYMBOL> <TYPE> · <ComponentName> — <scenario-id> excerpt"]
+        ENTRY["<unchanged entry context>"] --> TARGET["<b><element/method></b><br/><old failing route/value>"]
+    end
+
+    style TARGET fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+```
+
+![Current — <test-org-alias>, <record label/id>, <correct result>](../docs/ut/<work-id>/assets/<alias-slug>/<scenario-anchor>-after-<what>.png)
+
+**Current excerpt. Legend:** 🔷 Flow · 🟢 LWC. Green = verified correction.
+
+```mermaid
+flowchart TD
+    subgraph C1["<SYMBOL> <TYPE> · <ComponentName> — <scenario-id> excerpt"]
+        ENTRY["<unchanged entry context>"] --> TARGET["<b><element/method></b> 🔧<br/><correct route/value>"]
+    end
+
+    style TARGET fill:#d9f2d9,stroke:#080,stroke-width:2px
+```
+
 ### Apex log verification (if applicable)
 
 <!--
@@ -401,24 +468,27 @@ sf project deploy start \
 | `07L<...>` | sync | <component> | Success |
 | `07L<...>` | Batch Apex | `<BatchClass>` | Success / 0 errors |
 
-### Mandatory adversarial Gate B
+### Adversarial Gate B
 
 <!--
-  Three independent critics in ONE parallel fan-out; see
+  Two defect critics plus one minimality critic in ONE parallel fan-out; see
   .cursor/rules/adversarial-review.mdc. Keep this whole section in the finished
   doc — it is the review's audit trail, not guidance.
 -->
 
+**Gate status:** `Ran` / `Not required — <which materiality condition failed>` / `Waived by the user on <date>`
 **Scope contract:** `<owned surface (explicit paths) | blast radius | not owned | out of scope + reason>`
+**Packaged surface:** `none` / `<packaged path + the public member added + the user's recorded confirmation>`
 **Profile / change kind:** `<Salesforce delivery | agent-guidance | other>` / `<existing_modified | greenfield | retrieve_mirror>`
 **Evidence pack:** `<base SHA, HEAD SHA, changed-path list, validation job id, test/coverage + PMD output, operation-bound log IDs, freshness recheck>`
 **Parallel dispatch:** `<single timestamp proving all three launched together>`
+**Minimality feed-forward:** `n/a (no accepted minimality finding)` / `<the accepted finding + its disposition, as supplied to both defect critics on revision N>`
 
 | Critic / run | Lens | Revision reviewed | Verdict |
 |---|---|---|---|
-| `<id>` | `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 3>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 1 — `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 2 — `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | **Minimality** — fewer components, fewer changes | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
 
 | Mandatory attack category | Result | Evidence / finding IDs |
 |---|---|---|

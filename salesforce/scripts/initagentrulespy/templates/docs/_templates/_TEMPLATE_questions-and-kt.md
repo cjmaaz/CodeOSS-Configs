@@ -37,7 +37,7 @@
 |---|---|---|---|---|---|---|
 | `<AR-A-001 / Q1>` | <severity> | <evidence + design impact> | <answer> | <name/role> | YYYY-MM-DD | Open / Decided |
 
-Any answer that changes an assumption, scope, AC, or design makes the LLD a new revision — update it and rerun all three Gate A critics against that revision before implementation.
+Any answer that changes an assumption, scope, AC, or design makes the LLD a new revision — update it and rerun the Gate A critics against that revision before implementation.
 
 ### A. <theme — e.g. Definitions>
 

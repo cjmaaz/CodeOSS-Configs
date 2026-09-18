@@ -369,11 +369,53 @@ def substitute_text(content: str, *, alias: str, org_name: str, pmd_path: str,
     return out
 
 
+# OS and tooling droppings that appear inside templates/ without anyone adding
+# them. They are gitignored, so they never show up in a diff or a review — but
+# the walk below is filesystem-based, not git-based, so without this filter they
+# would be materialized into every bootstrapped project and counted as kit files.
+TEMPLATE_JUNK_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
+TEMPLATE_JUNK_DIRS = frozenset({"__pycache__", ".pytest_cache", ".ipynb_checkpoints"})
+
+
+def iter_template_files(templates_dir: Path):
+    """Every real template file, in a stable order, junk excluded.
+
+    Single source of truth for the walk so the materializer, the leak gate, and
+    the drift report can never disagree about what the kit contains.
+    """
+    for path in sorted(templates_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(templates_dir)
+        if rel.name in TEMPLATE_JUNK_NAMES:
+            continue
+        if TEMPLATE_JUNK_DIRS.intersection(rel.parts):
+            continue
+        if rel.suffix == ".pyc":
+            continue
+        yield path
+
+
 def is_text_file(rel: Path) -> bool:
-    """Heuristic: files whose contents we should string-substitute."""
+    """Heuristic: files whose contents we should string-substitute.
+
+    Shell scripts are deliberately absent: they ship byte-identical, reading
+    their org alias from the environment and everything else from the run's
+    generated files, so there is nothing in them to substitute.
+    """
     return rel.suffix.lower() in {
         ".md", ".mdc", ".json", ".xml", ".txt", ".yml", ".yaml",
     }
+
+
+# Suffixes whose files must land executable. Matched on suffix rather than an
+# enumerated path list so a newly shipped script needs no code change here.
+EXECUTABLE_SUFFIXES = frozenset({".sh"})
+
+
+def desired_mode(rel: Path) -> int | None:
+    """Permission bits a materialized file must end up with, or None for default."""
+    return 0o755 if rel.suffix.lower() in EXECUTABLE_SUFFIXES else None
 
 
 def is_managed_target_path(rel: Path) -> bool:
@@ -457,7 +499,7 @@ def scan_for_leaks(
     """
     findings: list[tuple[Path, int, str, str]] = []
     derived = derived or {}
-    for path in sorted(p for p in templates_dir.rglob("*") if p.is_file()):
+    for path in iter_template_files(templates_dir):
         rel = path.relative_to(templates_dir)
         try:
             text = path.read_text(encoding="utf-8")
@@ -505,7 +547,7 @@ def run_verify_templates(templates_dir: Path, derived: dict[str, str]) -> int:
 
     findings = scan_for_leaks(templates_dir, derived)
     if not findings:
-        total = sum(1 for p in templates_dir.rglob("*") if p.is_file())
+        total = sum(1 for _ in iter_template_files(templates_dir))
         print(f"  ✓ {total} template file(s) clean — no org-specific values found")
         print("    (detects absolute machine paths and the derived values above;")
         print("     it cannot know your org's object or component names)")
@@ -1015,8 +1057,13 @@ def target_shape_conflict(target: Path, rel: Path) -> Path | None:
     return None
 
 
-def atomic_write(path: Path, content: bytes) -> None:
-    """Write one file atomically (temp sibling + os.replace)."""
+def atomic_write(path: Path, content: bytes, mode: int | None = None) -> None:
+    """Write one file atomically (temp sibling + os.replace).
+
+    `mode` is applied to the temp file BEFORE the replace, so the visible path
+    never exists with the wrong permissions — a script is never briefly
+    non-executable at the moment another process might pick it up.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.initagentrulespy.{os.getpid()}.tmp")
     try:
@@ -1024,10 +1071,36 @@ def atomic_write(path: Path, content: bytes) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
+        if mode is not None:
+            os.chmod(temp, mode)
         os.replace(temp, path)
         fsync_directory(path.parent)
     finally:
         temp.unlink(missing_ok=True)
+
+
+def enforce_modes(target: Path, rels) -> list[Path]:
+    """Bring managed files to their required permissions; return what changed.
+
+    Runs over every managed path, not just the ones written, because a file whose
+    content already matched is skipped by the write planner — so a script that
+    lost its executable bit (a zip round-trip, a copy through a filesystem
+    without mode support, a stray chmod) would otherwise never be repaired.
+    Mode is not content, so applying it outside the content transaction is safe
+    and idempotent.
+    """
+    repaired: list[Path] = []
+    for rel in rels:
+        mode = desired_mode(rel)
+        if mode is None:
+            continue
+        path = target / rel
+        if not path.is_file() or path.is_symlink():
+            continue
+        if (path.stat().st_mode & 0o777) != mode:
+            os.chmod(path, mode)
+            repaired.append(rel)
+    return repaired
 
 
 def acquire_target_lock(target: Path) -> tuple[int, Path, str]:
@@ -1229,7 +1302,7 @@ def main() -> int:
     # Read every bundled template directly. Older kits may still carry the
     # retired release-inventory file; it is metadata, not a target template.
     template_sources = []
-    for path in sorted(p for p in templates_dir.rglob("*") if p.is_file()):
+    for path in iter_template_files(templates_dir):
         rel = path.relative_to(templates_dir)
         if (
             path.name == ".initagentrulespy-release.json"
@@ -1832,7 +1905,7 @@ def main() -> int:
                             raise RuntimeError(
                                 f"Target changed after backup: {rel.as_posix()}"
                             )
-                        atomic_write(dst, new_bytes)
+                        atomic_write(dst, new_bytes, mode=desired_mode(rel))
                         verb = (
                             "merged"
                             if existed and rel in mergeable_differing
@@ -1874,6 +1947,8 @@ def main() -> int:
                         print("  ✗ write failed; rolled back every file from this run")
                     raise
                 else:
+                    for rel in enforce_modes(target, [rel for rel, _ in rendered]):
+                        print(f"  ✓ mode 755:        {rel.as_posix()}")
                     try:
                         durable_rmtree(transaction)
                     except OSError as cleanup_error:

@@ -40,12 +40,19 @@ Skipping this step silently overwrites newer org state on your next deploy. The 
 | `--target-dev-hub <alias>` | `-v` | Dev Hub alias (for scratch/package commands). |
 | `--api-version <n>` | | Override the API version for this command. |
 | `--json` | | Output machine-readable JSON (pipe to `jq`). |
-| `--wait <minutes>` | `-w` | Poll/wait timeout for async ops. |
+| `--wait <minutes>` | `-w` | Poll/wait timeout for async ops. **Minutes, never seconds** — see below. |
 | `--async` | | Return immediately; check status via `resume`/`report`. |
 | `--verbose` | | Extra logging. |
 | `--concise` | | Trim output (deploy / test summaries). |
 | `--no-prompt` | `-p` | Skip interactive confirmation (varies — sometimes `-r`, see per-topic tables). |
 | `--flags-dir <dir>` | | Import flag values from a directory (advanced). |
+
+> **🚨 `--wait` is MINUTES.** Every `sf` command that polls takes `--wait` in minutes. Passing a seconds-style value does not error — it silently multiplies the timeout by sixty, so an intended 20-minute wait becomes 20 hours and the command loses its only timeout. A hung job then blocks indefinitely instead of failing, which in a scripted sequence means the whole run stalls with no error to react to. When scripting, **validate the value** and reject anything implausibly large rather than trusting the caller.
+
+> **🚨 `Status: Succeeded` is not evidence of work.** It means the API call completed, not that components were deployed, retrieved, or found. A retrieve can report `Succeeded` while emitting thousands of `cannot be found` warnings and writing almost nothing; a deploy can report `Succeeded` having matched zero components. **Never treat the status line as proof.** Verify against something countable — files written, components in the result, rows affected, coverage reported — and in a script make that count a gate rather than a log line. Two related traps when reading `sf` output programmatically:
+>
+> - **Logs contain NUL bytes**, so plain `grep` prints `Binary file … matches` instead of the matching line and your check silently under-reports. Use `grep -a` on any `sf` output file.
+> - **`grep -c` exits non-zero on no match** while still printing `0`, so `grep -c … || echo 0` emits two lines and breaks a numeric comparison. Capture it and default with `${VAR:-0}` instead.
 
 > **Long form vs short form.** Every example below preserves the long form for readability. The per-topic "Common short flags" tables list the equivalent short forms — both are valid, and `sf` accepts them interchangeably. Short forms are case-sensitive.
 

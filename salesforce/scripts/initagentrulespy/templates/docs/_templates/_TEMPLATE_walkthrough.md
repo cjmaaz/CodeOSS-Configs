@@ -35,11 +35,26 @@
 
 ## 2. The problem in one picture
 
+<!-- Follows docs/diagram-conventions.md, with one concession to the audience:
+     this diagram is read live by people who did not open the metadata, so keep
+     it to the fewest components that make the problem land. Everything else
+     holds — one subgraph per component, legend above the fence, colour for
+     state only, amber on the step that is wrong. -->
+
+**Legend.** <only the symbols used> 🔷 Flow · 🟣 Apex · 📄 org data. Amber = where it goes wrong, green = the outcome we want.
+
 ```mermaid
 flowchart TD
-  A[<what happens today, step 1>] --> B[<step 2>]
-  B --> C[<the undesired outcome>]
-  C --> D[<the desired outcome after the change>]
+    subgraph C1["🔷 FLOW · <ComponentName> — <one-line role>"]
+        A["<what happens today, step 1>"] --> B["<b><step 2></b><br/>⚠ <why this is the problem>"]
+        B --> C["<the undesired outcome>"]
+    end
+
+    C -.->|"<what the change does>"| D["<the desired outcome>"]
+
+    style B fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+    style C fill:#ffd9d9,stroke:#c00
+    style D fill:#d9f2d9,stroke:#080,stroke-width:2px
 ```
 
 <one-line real example, if available.>
@@ -105,6 +120,6 @@ flowchart TD
 ## 9. Next steps after the session
 
 1. Update the LLD with every decision that changes assumptions, scope, ACs, or design.
-2. Treat the updated LLD as a new revision and rerun all three Gate A critics against it; do not build on the pre-session verdict.
+2. Treat the updated LLD as a new revision and rerun the Gate A critics against it; do not build on the pre-session verdict.
 3. After Gate A passes, <reproduce / implement / verify>.
 4. <coordinate sequencing with related work, if any.>

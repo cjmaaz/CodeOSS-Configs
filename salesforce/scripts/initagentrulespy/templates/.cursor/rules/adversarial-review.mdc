@@ -1,78 +1,97 @@
 ---
-description: Mandatory adversarial review for Salesforce delivery work — every requirement, plan, diagnosis, implementation, bug fix, refactor, metadata change, org data mutation, and pre-deploy handoff. Launches three independent parallel critics at the plan gate and again at the implementation gate, bounded by a declared scope contract and a challenge loop that escalates to a human rather than looping forever.
+description: Adversarial review gate for Salesforce delivery work that carries real risk — changes to metadata that already has consumers, anything touching DML/SOQL/async/cascades, deploys and org data mutations, and retrieve audit docs. Launches two defect critics plus one minimality critic in parallel, bounded by a declared scope contract and a materiality bar that rejects scope-expansion findings. The user may waive any gate at any time and that waiver is final.
 alwaysApply: true
 ---
 
-# Mandatory adversarial review
+# Adversarial review
 
-**Protocol version: 2.0. Blocking gate, not optional advice.**
+Blocking where it applies. It applies narrowly and on purpose: see **When it runs**.
 
-## Why this exists
+## What this gate is for
 
-One authoring angle always leaves holes. Adversarial review is rubber-ducking with independent critics who look at the same plan or implementation from directions the author never took, so a hole invisible from the author's path shows up from someone else's.
+It catches the defect the author cannot see from the authoring angle. Overwhelmingly that means a violation reached **indirectly**, through a call chain, rather than one visible on the changed line.
 
-Critics attack the artifact and explain **why it fails**. They do not praise, summarize, rubber-stamp, or improve prose. A new path working is not enough: the gate also has to prove that trigger cascades, shared dependencies, legacy flows, sibling RecordTypes, bulk transactions, async races, and existing callers still behave.
+The canonical case, and the reason this gate exists at all:
 
-## Where this applies
+> A loop calls `methodA`. `methodA` calls `methodB`. `methodB` runs a SOQL query or a DML statement. Nothing on the changed line looks wrong — the query is three frames away, in a file the diff never touches. At 200 records that is a governor-limit failure, and reading the diff alone never finds it.
 
-**Required — Salesforce delivery:**
+So a critic's job is to **trace**, not to survey. Follow every call reachable from a loop or a bulk entry point down to its leaves, and look for what the diff cannot show you.
 
-- Metadata under `force-app/` — Apex, LWC, Aura, Flow, OmniStudio, layouts, FlexiPages, fields, permission sets, validation rules, anything deployable.
-- Org data mutations and any deploy.
-- Org-wide retrieve / mirror runs and their audit docs.
-- OmniStudio cache-bust and version-swap operations.
-- The LLD and `changes/` docs that accompany any of the above.
+## What this gate is NOT for
 
-**Not required unless the user asks:**
+It is not for redesigning the ticket. A critic proposing work the story did not ask for, or a refactor spanning seven files where three deliver the requirement, has not found a finding — it has failed at its job.
 
-- Personal tooling under `scripts/`.
-- The agent-guidance kit itself — rules, skills, doc templates, bootstrap.
-- Notes and reference docs not tied to a delivery ticket.
+**In a shared org, breadth is itself the risk.** Every extra component touched is another team's surface, another deploy conflict, another regression path, another reviewer. "Correct but sprawling" is a worse outcome than "correct and narrow", and this gate is required to say so.
 
-**Anything not on the exempt list is in scope** — the lists above are not two halves of a closed set. In particular, configuration that governs what gets deployed, retrieved, or statically analysed is Salesforce delivery: `sfdx-project.json`, `.forceignore`, `manifest/`, `config/pmd-ruleset.xml`, and `config/schema/` regeneration all change what later work compiles against or silently skips.
+## The user's word overrides this rule
 
-**The carve-out is by artifact class, never by authorship.** Anything that deploys metadata, mutates org data, or runs DML is Salesforce delivery no matter which folder it lives in — a `scripts/` file that writes to the org is in scope. "I wrote this myself" and "it is only a small script" are not exemptions. When the user does ask for a review of kit work, use the agent-guidance profile below; that profile exists precisely so this carve-out never means "unreviewable."
+If the user says to skip a gate, shrink it, or stop reviewing — **do that immediately, without arguing.** Record one line naming the gate waived and that the user waived it, then carry on. Do not re-raise it later in the thread, do not run an informal version anyway, and do not quote this rule back at them.
 
-**The exemption list is not self-amendable.** Edits to this rule, to the lists above, or to the Gate outcome sections of any template always require an agent-guidance Gate A — you may not widen your own exemption and then work inside it.
+That is not a loophole, it is the release valve that keeps the gate honest: a gate that cannot be waived gets deleted outright, which is strictly worse than one that is sometimes skipped on purpose.
 
-Planning-only work runs Gate A. Implemented work runs Gate A and Gate B. In-scope work that is genuinely tiny may answer concisely, and may record evidence-backed `N/A` for categories that cannot apply, but it does not skip the gate.
+The agent may not waive its own gate. "This looks small", "I am confident", and "it would take a while" are not waivers — only the user is.
 
-If work is inherited mid-implementation, freeze and fingerprint the inherited state, reconstruct current behavior, label which changes pre-existed, and run Gate A before any further edit.
+## When it runs
 
-## The two gates
+Required when **both** hold:
 
-Canonical order:
+1. The work changes deployable metadata, mutates org data, deploys, or is a retrieve audit doc; **and**
+2. it carries material risk — any one of: it modifies metadata that already has consumers; it involves DML, SOQL, async, batch, or a trigger/flow/OmniStudio cascade; it deploys or mutates org data; or it adds irreversible public surface (see the hard stop below).
 
-`intake → retrieve/current-state evidence → schema/domain inspection → draft plan/LLD → Gate A → edit/build/tests → Gate B → deploy or mutate → runtime verification → commit/handoff`
+Not required:
 
-**Gate A — plan and design.** Runs once current behavior, the affected surface, cascading impact, and a draft design/LLD exist. Runs *before* the first source edit, or before delivering a planning-only conclusion.
+- The user waived it.
+- A self-contained new component with no existing consumers, no data access, and no packaged surface — a demo or dummy LWC, an isolated helper nothing calls yet.
+- Changes with no behavioural consequence: formatting, comments, labels, descriptions.
+- Personal tooling under `scripts/`, the agent-guidance kit, and notes not tied to a ticket. Ask for the agent-guidance profile if you want one of these reviewed.
 
-**Gate B — implementation.** Runs once the implementation and tests are ready. Runs *before* the first real deploy, org DML, cache-bust, version swap, commit, or final handoff.
+A `scripts/` file that writes to the org is delivery work regardless of folder, and so is config governing what deploys or gets analysed (`sfdx-project.json`, `.forceignore`, `manifest/`, `config/pmd-ruleset.xml`). Beyond that, when a change is genuinely borderline, say in one line why you are not gating it and proceed — do not spend the gate's cost deciding whether to spend the gate's cost.
 
-**Nothing in the review loop touches the live org.** Gate B runs against local artifacts plus validation-only output — `--dry-run`, `sf project deploy validate`, PMD, and synchronous test runs against the validation job. Every challenge round below therefore costs nothing but time; no back-and-forth can damage a live environment, because the deploy has not happened yet.
+## Hard stop: irreversible public surface
 
-The single exception is Gate-A-reviewed observability setup — for example a narrowly scoped, time-bounded TraceFlag — when validation evidence cannot otherwise be captured. Record its exact payload, target user, expiry, and cleanup. It must never change business data or deployable metadata.
+**This is a user confirmation, not a critic finding, and it comes before any gate.**
 
-Only the root/orchestrating agent launches critics. Critics are read-only and MUST NOT spawn further critics.
+Once a managed package version is released, its public surface is permanent. You cannot remove or rename a `global` Apex class, method, or variable; an `@api` property or method on a packaged LWC; or a packaged object or field. Salesforce refuses the change, so there is no rollback, no cleanup commit, and no way to undo it in a later version.
+
+So **before adding public surface to anything that ships in a package, stop and ask the user** — naming the exact member and stating plainly that it cannot be removed later. Wait for an answer. Do not add it and mention it afterwards, and do not delegate the decision to a critic.
+
+Identify packaged metadata before you edit:
+
+- An API name carrying a namespace prefix (`ns__Thing`) belongs to an installed managed package.
+- A path under a `packageDirectories` entry in `sfdx-project.json` that has a `package` key ships in your own package.
+- `sf package installed list -o {{ORG_ALIAS}}` lists the installed namespaces.
+
+**Do not edit installed managed-package components.** Mostly the platform prevents it; where it does not, treat them as off-limits unless the ticket explicitly says otherwise.
 
 ## Scope contract — declare it before launching
 
-Over-broad critique is the most common failure of this gate. In a shared repo, hundreds of components are touched by many teams; a critic given no boundary will report on all of them, and the useful findings drown. So every fan-out opens with an explicit contract:
+Over-broad critique is this gate's most common failure, so every fan-out opens with an explicit boundary:
 
-- **Owned surface** — the exact list of paths this change edits. Enumerate them. No globs, no "and related files."
-- **Blast radius** — everything already consuming what you edited: Apex callers and callees, shared helpers, sibling RecordTypes, trigger/flow cascades, OmniScripts and Integration Procedures that invoke the IP or DataRaptor you changed (and the IPs that invoke *those*), LWC/Aura components importing a changed Apex method, FlexiPages and layouts surfacing a changed field, permission sets granting it, and legacy paths still on the old route. This is what the change is accountable for even though it did not edit it. Enumerate it by searching for consumers, not by recalling them.
-- **Not owned** — components that merely coexist in the repo, and other teams' code the change does not sit on.
-- **Out of scope** — concerns that cannot apply to this artifact class, each with a one-line reason.
-- **Profile** — follows the artifact, not preference: anything under `force-app/`, any deploy, and any org data mutation uses **Salesforce delivery**; the kit uses **agent-guidance**; a purpose-matched set of three is available only when neither applies. You may not downgrade an Apex change to "other" and drop the runtime and concurrency lenses.
-- **Change kind** — `existing_modified`, `greenfield`, or `retrieve_mirror`. `existing_modified` raises the bar: regression on the shared path is the primary risk, not a secondary one.
+- **Owned surface** — the exact list of paths this change edits. Enumerate them; no globs, no "and related files".
+- **Blast radius** — what already consumes what you edited: Apex callers and callees, shared helpers, sibling RecordTypes, trigger/flow cascades, OmniScripts and Integration Procedures invoking a changed IP or DataRaptor (and the IPs invoking those), LWC/Aura importing a changed Apex method, FlexiPages and layouts surfacing a changed field, permission sets granting it, legacy paths still on the old route. Enumerate it by searching for consumers, not by recalling them.
+- **Not owned** — components that merely coexist, and other teams' code this change does not sit on.
+- **Packaged surface** — any owned path that is packaged, and whether this change adds public surface to it. `none` is the expected answer; anything else means the hard stop above already ran.
+- **Profile** — follows the artifact: `force-app/`, any deploy, any org mutation → **Salesforce delivery**; a retrieve audit doc → **retrieve**; the kit → **agent-guidance**.
+- **Change kind** — `existing_modified`, `greenfield`, or `retrieve_mirror`. `existing_modified` raises the bar: regression on the shared path is the primary risk. `retrieve_mirror` runs Gate B only, because a retrieve is read-only and its plan is generated rather than designed.
 
-A finding must land on the owned surface or its blast radius. "This unrelated component has a pre-existing bug" is dispositioned `Out of scope — outside declared ownership`, citing the contract.
+A finding must land on the owned surface or its blast radius. A pre-existing defect on a component this change does not sit on is `Out of scope — outside declared ownership`, citing the contract.
 
-**Both halves of that rule are binding.** A shared path the edited component sits on is *always* in scope, and pre-existing-ness is never a defence when this change makes the defect reachable, more frequent, or harder to detect. Do not use the contract to wave away a real regression on a component you touched; the contract exists to focus critics, not to shrink accountability.
+**The reverse is equally binding.** A shared path the edited component sits on is *always* in scope, and pre-existing-ness is no defence once this change makes a defect reachable, more frequent, or harder to detect. The contract focuses critics; it does not shrink accountability.
+
+## The two gates
+
+`intake → current-state evidence → schema inspection → draft plan/LLD → Gate A → build/tests → Gate B → deploy → runtime verification → commit`
+
+- **Gate A — plan and design.** Before the first source edit, once current behaviour, the affected surface, and a draft design exist.
+- **Gate B — implementation.** Before the first real deploy, org DML, cache-bust, version swap, commit, or handoff.
+
+**Nothing in the review loop touches the live org.** Gate B runs against local artifacts plus validation-only output — `--dry-run`, `sf project deploy validate`, PMD, synchronous tests. The one exception is a narrowly scoped, time-bounded TraceFlag when validation evidence cannot otherwise be captured; record its payload, target user, expiry, and cleanup, and never let it change business data or metadata.
+
+Only the orchestrating agent launches critics. Critics are read-only and never spawn critics.
 
 ## Evidence pack
 
-Give every critic in a fan-out the same snapshot, and record it in the LLD (Gate A) or `changes/<slug>.md` (Gate B):
+Give every critic in a fan-out the same snapshot, recorded in the LLD (Gate A) or `changes/<slug>.md` (Gate B):
 
 ```bash
 BASE=$(git merge-base HEAD <target-branch>)   # or the pre-work HEAD
@@ -82,136 +101,123 @@ git diff --name-only "$BASE"
 git status -s
 ```
 
-Record: base SHA, HEAD SHA, the explicit changed-path list, and the paths of any test / PMD / log output referenced.
+- **Gate A** adds requirements and ACs, current-behaviour evidence, the dependency/cascade map, stated assumptions, the proposed design, rejected alternatives, and draft test scenarios.
+- **Gate B** adds the confirmed ACs, the complete diff, affected callers and callees, validation output, tests and coverage, static analysis, every operation-bound Apex log ID, and a `LastModifiedDate` freshness recheck per touched component immediately before deploy.
 
-**Gate A** additionally supplies requirements and ACs, current-behavior evidence, the affected surface, the dependency/cascade map, stated assumptions, the proposed design, rejected alternatives, and draft test scenarios.
+Inapplicable evidence is `N/A` with a one-line reason.
 
-**Gate B** additionally supplies the confirmed ACs, the approved design and its Gate A outcome, the complete diff, affected callers and callees, validation-job output, test results and coverage, static-analysis output, and every operation-bound Apex log ID. For Salesforce delivery, add a freshness recheck — the `LastModifiedDate` of each touched component, re-queried immediately before deploy, to prove nobody changed the org underneath you during the review.
+## Two defect critics plus one minimality critic
 
-Evidence that does not apply is recorded as `N/A` with a one-line reason. Salesforce logs and org freshness are legitimately `N/A` for guidance-only artifacts.
+Launch all three in a single parallel fan-out. In round one they are fully independent: do not serialize them and do not show one critic's output to another.
 
-## Launch three independent critics in parallel
+Critics 1 and 2 attack the artifact for defects, using the lenses of the declared profile. Critic 3 is different, and exists because the other two systematically pull in one direction — toward doing more.
 
-Launch all critics in a single parallel fan-out. Do not serialize them, and do not show one critic's findings to another before every critic has returned — independence is the entire mechanism, and sharing findings early produces groupthink instead of coverage.
+### Critic 3 — minimality
 
-### Salesforce delivery profile
+Its only question: **can the required outcome be achieved by touching fewer components and making fewer changes?**
 
-1. **Runtime and limits** — trigger/flow/validation/OmniStudio/async chains; recursion; 1/200/max/mixed bulk; DML, SOQL, SOSL, or callouts in loops; governor limits; nulls, exceptions, rollback.
-2. **Concurrency and data integrity** — stale reads, async ordering, locks and deadlocks, overlapping jobs, duplicates, retries and idempotency, transaction boundaries.
-3. **Requirements, regression, and dependencies** — AC counterexamples, logical and state boundaries, callers/callees/shared metadata, permissions and FLS, RecordTypes, sibling and legacy paths, and the case where the new path succeeds while an old path silently regresses.
+"Fewer components" means fewer of *any* component, not just other people's. A new class where an existing one would serve, a schema change where an existing field or a formula would do, a shared component edited where a local one would have been enough, a broad refactor bundled into a narrow fix, files in the diff that no acceptance criterion requires — all of these are its findings.
 
-### Agent-guidance profile (rules, skills, templates, bootstrap kit)
+It must name the specific component that could be left untouched and how the requirement is still met without it. "This could be cleaner" is not a finding; "AC2 is satisfied by the change in `X`, so the edits to `Y` and `Z` are not required" is.
 
-1. **Rule and skill consistency** — contradictory mandates, wrong ordering, missing activation triggers or descriptions, duplicate ownership, impossible instructions, stale cross-references, and drift between a rule and its skill mirror.
-2. **Template and workflow usability** — missing fields or checklists, unusable placeholders, numbering and anchors, evidence expectations, cleanup instructions, naming and slugs, and whether a future agent can follow the workflow without guessing.
-3. **Portability and generation** — org-specific leakage into shared templates, token coverage for every machine- or org-specific value, template-to-generated parity, seed-once files that must never be overwritten, generated file placement and counts, and whether the bootstrapper reproduces the intended output in a fresh target.
+It does not get to demand a rewrite for elegance, and it may not propose *additional* work to achieve reduction unless that work is strictly smaller than what it removes.
 
-For the agent-guidance profile the bootstrapper is a delivery mechanism, not the subject. Review whether it tokenizes, substitutes, places, and preserves the intended files. Do **not** redesign its locking, transaction model, crash durability, threat model, or large-scale performance unless the user asks or a concrete defect prevents correct output.
+### Feed-forward on the second run
 
-### Other artifact types
+If the orchestrating agent verifies and accepts a minimality finding, the artifact shrinks — which is a revision. On that revision, **the two defect critics receive the minimality finding and its disposition along with the reduced artifact.**
 
-Derive exactly three independent lenses from the declared purpose. Keep one correctness/requirements lens and one regression/dependency lens; make the third domain-specific. Record why each standard Salesforce category is `N/A` rather than attacking systems the artifact does not touch.
+They need it: without it they review a narrowed design blind to why it narrowed, and their most likely response is to propose re-adding exactly what was just removed. This is the **one sanctioned exception** to critic independence. It is one-directional (minimality → defect critics, never the reverse), and it applies only on a revision, never in round one.
 
-Add a fourth specialist only when the declared in-scope surface warrants it. A fourth critic never replaces one of the three mandatory lenses.
+## Profiles
+
+### Salesforce delivery
+
+1. **Correctness and runtime.** Trace call chains from every loop and bulk entry point to their leaves — a SOQL query, DML statement, callout, or limit-consuming operation anywhere in the chain is a finding even when the diff shows none. Then: recursion, 1/200/max/mixed bulk, nulls, exceptions, rollback, stale reads, async ordering, locks, overlapping jobs, retries and idempotency, transaction boundaries.
+2. **Regression on what already works.** Existing consumers of what changed, shared paths, sibling RecordTypes, legacy routes still live, permissions and FLS, and specifically the case where the new path succeeds while an old path silently regresses. Plus AC counterexamples: input the requirement allows that this implementation gets wrong.
+3. **Minimality** as above.
+
+### Retrieve (`change_kind: retrieve_mirror`, Gate B only)
+
+The subject is the finished audit doc against the actual diff. Nothing was deployed and nothing mutated, so runtime, concurrency, limits, and deploy-safety lenses are `N/A` with that reason recorded. **Two critics only** — minimality does not apply, because a retrieve changes no components.
+
+1. **Did the doc record what actually happened, completely and accurately?** Anything present in the diff that the doc does not mention: a changed component with no note, a deletion, a structural rewrite, a new file. And the inverse — any claim the evidence does not support, such as content presented as current when it is dated carry-forward.
+2. **Was the diff actually read?** Notes that restate a filename instead of naming the behaviour that changed and the risk it carries; a misread diff; a version-pair reported as bulk added lines; a structural overhaul reduced to a line count.
+
+**Org-wide coverage is explicitly out of scope here.** "You should also have retrieved type X" is not a finding: we do not own the whole org, and what the run chose to pull is the operator's decision. Attack what the document *claims*, never what the run deliberately and datedly left alone.
+
+### Agent-guidance (rules, skills, templates, bootstrap)
+
+1. **Consistency and drift** — contradictory mandates, wrong ordering, missing activation triggers, duplicate ownership, stale cross-references, and drift between a rule and its skill mirror.
+2. **Usability and portability** — unusable placeholders, missing tokens for org- or machine-specific values, template-to-generated parity, seed-once files that must never be overwritten, and whether a fresh target reproduces the intended output.
+3. **Minimality** as above.
+
+The bootstrapper is a delivery mechanism, not the subject: do not redesign its locking, durability, or performance unless a concrete defect prevents correct output.
+
+## What is not a finding
+
+Return these as nothing, or the useful findings drown:
+
+- Work the ticket did not ask for, and infrastructure, monitoring, or framework requirements the story never mentioned.
+- A refactor or restructure not required to make this change correct.
+- A pre-existing defect on a component this change does not sit on.
+- Style, naming, or formatting with no behavioural consequence.
+- A hypothetical with no data shape, volume, timing, or interleaving that triggers it.
+- "Add tests for X" where X sits outside the owned surface and blast radius.
+- For retrieve: coverage the run deliberately excluded with a recorded date.
+
+**One exception, always in scope: contract completeness.** If `git diff --name-only` shows a path missing from the owned surface, or you find a consumer of an edited component missing from the blast radius, report it. An under-declared contract is the only way this gate can be quietly defeated, and the critic is the only party positioned to catch it.
 
 ## Critic prompt contract
 
-Every prompt carries the scope contract verbatim, plus this instruction in substance:
+Every prompt carries the scope contract verbatim, the profile's lens assignment, and this instruction in substance:
 
-> Attack and nitpick this artifact. Find concrete reasons it will fail or regress existing behavior. Do not praise it. Do not edit files. Return `BLOCK` for any Critical/High finding, `PASS_WITH_FINDINGS` when only Medium/Low findings remain, otherwise `PASS`.
+> Attack this artifact for concrete defects. Find reasons it will fail or regress existing behaviour, and trace call chains rather than reading only the diff. Do not praise it, do not edit files, and do not propose work the ticket did not ask for. Return `BLOCK` for any Critical/High finding, `PASS_WITH_FINDINGS` when only Medium/Low remain, otherwise `PASS`.
 >
-> Stay inside the supplied scope contract and profile. A concern outside the declared surface is not a finding. Do not invent unrelated infrastructure requirements.
->
-> One exception: **contract completeness is always in scope.** If `git diff --name-only` shows a path missing from the owned surface, or you find a consumer of an edited component missing from the blast radius, report that as a finding. An under-declared contract is the one way this gate can be quietly defeated, and you are the only party positioned to catch it.
+> Stay inside the supplied scope contract. A concern outside the declared surface is not a finding, except contract completeness, which always is.
 
-Require each critic to return:
+Each critic returns: its identity and assigned lens; the exact revision reviewed (base SHA plus path list) and any assumptions; an overall verdict; and per finding an ID, a severity (`Critical`, `High`, `Medium`, `Low`), concrete evidence (path and line, method, transaction chain, query, metadata element), the triggering data shape or timing, the consequence and which existing behaviour it affects, and a recommended fix with the test that would prove it.
 
-- Critic identity and assigned lens.
-- The exact artifact revision reviewed (base SHA + path list) and any assumptions made.
-- Overall `PASS`, `PASS_WITH_FINDINGS`, or `BLOCK`.
-- Per finding: an ID and severity (`Critical`, `High`, `Medium`, `Low`).
-- Concrete evidence — path and line, method, transaction chain, dependency, query, or metadata element.
-- The triggering data shape, volume, timing, or interleaving.
-- The failure consequence and which existing behavior it affects.
-- A recommended fix, plus the regression/bulk/concurrency test that would prove it.
-
-A vague concern with no falsifiable failure scenario is not a finding. A critic that fails, times out, or omits its assigned lens does not count toward the three.
+A concern with no falsifiable failure scenario is not a finding. A critic that fails, times out, or omits its lens does not count.
 
 ## Disposition
 
-The orchestrating agent deduplicates findings, **verifies each one against the actual source and evidence**, and records exactly one disposition:
+Deduplicate, **verify each finding against the actual source and evidence**, then record exactly one disposition: `Fixed` (cite the change and test), `Rejected with evidence` (cite the proof), `Accepted risk` (Medium/Low only, explicit user approval), `Deferred` (Medium/Low only, owner and ticket), `N/A with evidence`, or `Out of scope — outside declared ownership` (cite the contract).
 
-- `Fixed` — design or implementation changed; cite the change and the test.
-- `Rejected with evidence` — demonstrably a false positive; cite the proof.
-- `Accepted risk` — Medium/Low only, with explicit user approval and rationale.
-- `Deferred` — Medium/Low only, with a follow-up owner/ticket and containment.
-- `N/A with evidence` — the category cannot apply; explain why.
-- `Out of scope — outside declared ownership` — cite the scope contract.
+- `Critical` and `High` may only be `Fixed` or `Rejected with evidence`. A scope objection to one goes to the user, not to the contract.
+- `Medium` needs resolution or explicit user risk acceptance; `Low` stays recorded either way.
+- Critic disagreement is unresolved risk, not a majority vote. A full set of critics returning `PASS` is not a set of approvals — lens coverage and evidence are what count.
 
-Rules:
-
-- `Critical` or `High` may only be `Fixed` or `Rejected with evidence`; they cannot be accepted, deferred, or dispositioned out of scope. A scope objection to a Critical or High goes to the user through the challenge loop, never to the contract.
-- `Medium` findings require resolution or explicit user risk acceptance.
-- `Low` findings remain recorded even when not fixed.
-- Critic disagreement is unresolved risk, not a majority vote.
-- Do not count three critics as three approvals; category coverage and evidence matter.
-
-Aggregate gate verdict:
-
-- `PASS` — all mandatory critics passed and no finding remains.
-- `PASS_WITH_FINDINGS` — no critic is `BLOCK`; only resolved/accepted Medium or recorded Low findings remain.
-- `BLOCK` — any critic blocks, any required lens or evidence is missing, or any Critical/High/unresolved Medium remains.
+Aggregate: `PASS` when all critics passed with nothing outstanding; `PASS_WITH_FINDINGS` when none blocks and only resolved or accepted Medium and recorded Low remain; `BLOCK` otherwise.
 
 ## The challenge loop
 
-A critic is not an authority and its output is not a work order. Findings are hypotheses; the orchestrating agent's job is to test them. Two failures are equally serious: **applying a wrong finding**, and **dismissing a right one**.
+A critic is not an authority and its output is not a work order. Findings are hypotheses and the orchestrating agent's job is to test them. Two failures are equally serious: applying a wrong finding, and dismissing a right one.
 
-```mermaid
-flowchart TD
-    F[Critic returns finding] --> V{Verify against<br/>source and evidence}
-    V -->|Verified true| FIX[Fixed: cite change + test]
-    V -->|Verified false| REB[Write counter-evidence]
-    V -->|Cannot verify| REB
-    REB --> R{Rebuttal round<br/>to the SAME lens}
-    R -->|Critic withdraws| REJ[Rejected with evidence:<br/>record both sides]
-    R -->|Critic holds| C{Rounds used}
-    C -->|Fewer than 3| REB
-    C -->|3 reached| H[STOP. Ask the human.<br/>Mandatory. No self-resolve.]
-    FIX --> N[New artifact revision:<br/>rerun all three lenses]
-```
-
-Binding rules:
-
-1. **Never auto-apply.** Read the cited code, query, or log and confirm the failure is real before changing anything. Applying findings unverified is how a review makes an artifact worse.
-2. **Never silently drop.** Rejecting a finding is not a private decision. Write the counter-evidence and send it back to that same lens as a rebuttal round, giving the critic the context it lacked. A finding that disappears without a recorded rebuttal is a bypass.
-3. **Unverifiable means unresolved.** If you cannot prove a finding either way, it is not a false positive. It goes to a rebuttal round and, failing that, to the human.
-4. **Three rounds, then a human — always.** A rebuttal round re-prompts the disagreeing lens with the added context. After three rounds on the same finding without resolution, **stop and ask the user.** Do not deploy, mutate, commit, or hand off. Do not convert a surviving Critical or High into `Accepted risk` or `Deferred` to escape the loop. Present both positions and the evidence; record the user's decision as the disposition, attributed to them.
-5. **Convenience is never a reason.** Schedule pressure, effort, or a preference for the current design does not justify rejecting a valid finding.
+1. **Never auto-apply.** Read the cited code, query, or log and confirm the failure is real before changing anything.
+2. **Never silently drop.** To reject a finding, write the counter-evidence and send it back to that same lens as a rebuttal round. A finding that disappears without a recorded rebuttal is a bypass.
+3. **Unverifiable means unresolved.** If you cannot prove it either way it goes to rebuttal, not to `Rejected`.
+4. **Three rounds, then the user — always.** After three unresolved rounds on one finding, stop and ask. Do not deploy, mutate, commit, or hand off, and do not downgrade a surviving Critical or High to `Accepted risk` to escape the loop. Present both positions and record the user's decision, attributed to them.
+5. **Convenience is never a reason** to reject a valid finding.
 
 ## Re-review triggers
 
-Distinguish the two cases; conflating them either wastes three critics on an unchanged artifact or, worse, ships a changed one on a stale verdict:
+- **Rebuttal round** — artifact unchanged, counter-evidence added. Re-prompt only the disagreeing lens; the other verdicts stand.
+- **Revision** — the artifact or its evidence changed. Rerun all three critics in parallel, passing accepted minimality findings forward to the defect critics as described above.
 
-- **Rebuttal round** — the artifact is unchanged and only counter-evidence was added. Re-prompt just the disagreeing lens. The other two verdicts stand.
-- **Revision** — any change to the artifact or its evidence. This starts a new revision and reruns **all three** mandatory critics in parallel against it.
+**At most two full revisions per gate.** Critics are told to attack and forbidden to praise, so a third revision reliably surfaces a fresh round of findings; without a ceiling the gate has no termination guarantee and gets abandoned wholesale instead of run properly. Findings remaining after the second revision go to the user. Reaching the ceiling is a normal outcome, not a failure.
 
-Never combine verdicts from different revisions, and never accept a late result from a superseded one. Record the new revision and supersede — do not erase — the prior verdict.
+Never mix verdicts across revisions, and never accept a late result from a superseded one.
 
-**At most two full revisions per gate.** Critics are instructed to attack and forbidden to praise, so a third revision will usually surface a fourth round of findings; without a ceiling the gate has no termination guarantee and gets abandoned wholesale rather than run properly. If findings remain after the second revision, stop and take them to the user with the same escalation the challenge loop uses. Reaching the ceiling is a normal outcome, not a failure.
+## Anti-patterns
 
-## Capability failures and anti-patterns
-
-If parallel subagents are unavailable, report the gate as **unfulfilled and blocked**. Do not silently substitute a self-review or a single generic critic and call it compliance.
-
-Forbidden:
-
-- Running critics sequentially when parallel launch is available.
-- Coaching critics toward approval, or giving later critics earlier findings.
-- Treating "no findings" as proof without lens and category coverage.
-- Majority-voting away a blocker.
-- Applying a finding without verifying it first.
-- Dropping a finding without a recorded rebuttal round.
-- Self-resolving a finding that has already survived three rounds.
-- Using the scope carve-out to skip review on something that writes to the org.
-- Deploying, mutating org data, cache-busting, committing, or handing off before Gate B passes.
-- Claiming in-scope work is exempt because it looks small.
+- Ignoring, deferring, or informally re-running a gate the user waived.
+- Waiving your own gate because the work looks small or you feel confident.
+- Adding `global` Apex or an `@api` member to packaged metadata without asking the user first.
+- Reading only the diff when the defect this gate exists to catch is three call frames away.
+- Returning scope expansion as a finding: extra components, unrequested refactors, or work the story never asked for.
+- Running critics sequentially when parallel launch is available, or sharing findings between critics in round one.
+- Sharing defect findings *into* the minimality critic, or feeding minimality findings forward in round one.
+- Applying a finding without verifying it, or dropping one without a recorded rebuttal.
+- Self-resolving a finding that has survived three rounds.
+- Majority-voting away a blocker, or treating "no findings" as proof without lens coverage.
+- Deploying, mutating org data, cache-busting, committing, or handing off before a required Gate B passes.

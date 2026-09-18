@@ -53,6 +53,21 @@ If the retrieve reports `nothing retrieved`, the component may no longer exist i
 
 Re-read the file after the retrieve completes. If git shows the retrieve changed it, your local copy was stale — review the new contents before applying your edit so you don't reintroduce removed code.
 
+**Read the diff for deletions, not just additions.** Two properties of `sf project retrieve start` make a retrieve look successful while leaving the tree wrong, and both are invisible if you only check that the file changed:
+
+**Retrieve is add-and-overwrite; it never deletes.** A component deleted in the org leaves its local file untouched, so the deletion is absent from the diff entirely. The stale file then keeps serving schema the org no longer has — and if you deploy it back, you *recreate* the component someone deliberately removed. A file count at or above the previous baseline is therefore not evidence of correctness; it is equally the signature of an undetected deletion. When you retrieve a wildcard or a whole type, reconcile the org's `list metadata` fullNames against the component names on disk rather than assuming a superset is fine.
+
+**A container and its child type decompose into the same file, and the later retrieve wins.** Retrieving a child type alone rewrites the shared file with only that child's members and silently drops everything the container contributed — several live rules can vanish from one file while the command reports success. This bites hardest with the rule-container types (sharing rules, workflow, matching/assignment/auto-response/escalation rules, custom labels) whose children are separately addressable. Two consequences for the edit loop:
+
+- **Retrieve the container, not the child**, when you need one child of it. Addressing the container gets you the union; addressing the child can cost you the rest.
+- **If you did retrieve a child type, re-retrieve its container afterwards** and confirm the file is back to the union before you edit or deploy it.
+
+```bash
+# After retrieving any child type, check whether the shared file lost members.
+git diff --stat -- force-app/main/default/objects/
+git diff -- <the-shared-file>   # deletions here are the tell
+```
+
 ## Step 4 — Recheck org freshness before deploy
 
 If analysis/review/implementation took time, compare the org component state again immediately before deployment **without retrieving over the edited working files** — query each component's `LastModifiedDate` and `LastModifiedById`, or retrieve into a throwaway `--target-metadata-dir`:
@@ -64,12 +79,12 @@ sf data query -o {{ORG_ALIAS}} --use-tooling-api \
 
 That Tooling-API form works for ApexClass, ApexTrigger, CustomField, CustomObject, Layout, FlexiPage, Flow, PermissionSet, ValidationRule, RecordType, WebLink, and the LWC/Aura bundles. It does **not** work for the Omni types — `OmniProcess` and `OmniDataTransform` are not Tooling objects and return `sObject type ... is not supported`. Query those on the standard data API instead, and on a Vlocity CMT org use `vlocity_cmt__OmniScript__c` / `vlocity_cmt__DRBundle__c`, since the standard objects are empty there.
 
-Compare against the timestamps captured at Step 2. If nothing moved, deploy promptly — the shorter the gap between this check and the deploy, the smaller the overwrite race. If a teammate or admin changed an intended component after Step 2, STOP: merge their change, revalidate and re-test, then rerun all three Gate B critics against the new revision. `--ignore-conflicts` never authorizes overwriting newer org work.
+Compare against the timestamps captured at Step 2. If nothing moved, deploy promptly — the shorter the gap between this check and the deploy, the smaller the overwrite race. If a teammate or admin changed an intended component after Step 2, STOP: merge their change, revalidate and re-test, then rerun the Gate B critics against the new revision. `--ignore-conflicts` never authorizes overwriting newer org work.
 
 ## Scope
 
 - **Default org alias is `{{ORG_ALIAS}}`** (sandbox). Every `sf` command in this repo assumes `-o {{ORG_ALIAS}}`. Confirm with `sf org list --all`.
-- This is about **single-file or scoped** retrieves in the normal edit loop. For full-org refreshes, use the pre-sharded `manifest/fullpackage/` manifests — never a single org-wide `*` retrieve (it hits the 10k-component limit).
+- This is about **single-file or scoped** retrieves in the normal edit loop. For a full-org refresh, follow [`docs/org-mirror/README.md`](../../docs/org-mirror/README.md) — never a single org-wide `*` retrieve, which exceeds the per-call cap on any non-trivial org.
 - Schema TOON files under `config/schema/` are refreshed separately via `python3 scripts/schemapy/auto_generate_schema.py`, not by this flow. See [`salesforce-schema-validation.mdc`](./salesforce-schema-validation.mdc).
 
 ## When NOT to retrieve

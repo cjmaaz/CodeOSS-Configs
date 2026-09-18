@@ -9,11 +9,11 @@ alwaysApply: true
 >
 > **`sf` reference:** [`sf-cli-commands.mdc`](./sf-cli-commands.mdc) for any flag not spelled out here. The commands below are the *minimum required sequence*, not the full surface.
 >
-> **Adversarial gates:** [`adversarial-review.mdc`](./adversarial-review.mdc) is mandatory. Gate A precedes editing; Gate B precedes every real deploy/commit.
+> **Adversarial gates:** [`adversarial-review.mdc`](./adversarial-review.mdc) decides whether the gates run at all — Apex touching DML, SOQL, async, or a cascade almost always qualifies, but the user may waive any gate and that is final. Where they apply, Gate A precedes editing and Gate B precedes every real deploy/commit.
 
 ## ⚠️ ZERO TOLERANCE
 
-**NEVER** deploy code without a passing adversarial Gate B, PMD, validation-only compile, and targeted tests • **NEVER** skip Apex-log verification after execution • **NEVER** overwrite an existing manifest • **NEVER** assume success without reading the log.
+**NEVER** deploy code without PMD, a validation-only compile, targeted tests, and — where the gate applies — a passing adversarial Gate B • **NEVER** skip Apex-log verification after execution • **NEVER** overwrite an existing manifest • **NEVER** assume success without reading the log.
 
 Why the log is non-negotiable: triggers fire silently, flows auto-populate fields, validation rules fail quietly, try/catch hides exceptions, governor limits creep — **none of this appears in the deploy summary, only in the log.**
 
@@ -35,7 +35,8 @@ sf project deploy validate --manifest './manifest/<feature>.xml' -o {{ORG_ALIAS}
 sf project deploy report --job-id <validation-job-id> -o {{ORG_ALIAS}} --json
 sf apex list log -o {{ORG_ALIAS}} --json
 
-# 5. Run adversarial Gate B on the exact diff + bound validation/test/log evidence.
+# 5. Run adversarial Gate B (if it applies) on the exact diff + bound evidence:
+#    two defect critics plus one minimality critic, in one parallel fan-out.
 #    Verify every finding before acting on it; rebut rather than silently drop one.
 #    Anything unresolved after three rounds goes to the user, not past this step.
 
@@ -168,13 +169,14 @@ List<Account> accts = [
 ## Final checklist (before marking Apex work done)
 
 - [ ] Retrieved current versions of all touched components from `{{ORG_ALIAS}}`.
-- [ ] Gate A passed against the approved LLD; reviewer evidence is recorded.
+- [ ] Gate A passed against the approved LLD with reviewer evidence recorded — or one line saying why the gate did not apply, or that the user waived it.
 - [ ] PMD clean before deployment.
 - [ ] Syntax/full manifest validated without committing; targeted tests passed.
 - [ ] Validation job coverage plus every operation-bound test/async log ID captured and inspected before Gate B.
 - [ ] NEW manifest created (descriptive name, only modified files).
 - [ ] Test data uses a factory where one exists; all fields schema-validated.
 - [ ] Tests cover adversarial findings plus bulk, null/error, dependency/regression, and concurrency risks; coverage verified (≥75%, target 90%+).
-- [ ] Gate B passed against the final diff/test evidence; every finding verified, rebutted, or escalated — no unresolved blocker and nothing still in the challenge loop.
+- [ ] Gate B passed against the final diff/test evidence; every finding verified, rebutted, or escalated — no unresolved blocker and nothing still in the challenge loop. (Or the recorded reason it did not apply.)
+- [ ] No `global` Apex added to packaged metadata without the user's explicit confirmation — that surface cannot be removed once a package version ships.
 - [ ] Every post-deploy/test/async log inspected — no `EXCEPTION|ERROR|FATAL`; expected triggers/flows fired; governor limits OK; no discrepancy that reopens Gate B.
 - [ ] Params single-line; SOQL formatted per the 200-char rule.

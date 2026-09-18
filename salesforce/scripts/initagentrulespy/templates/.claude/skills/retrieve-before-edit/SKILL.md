@@ -55,14 +55,19 @@ If you suspect the file no longer exists in the org, the retrieve will report `n
 
 Re-read the file with the `Read` tool after retrieve completes. If git shows the retrieve modified the file, the local copy was stale — review the new contents before applying your edit so you don't reintroduce removed code.
 
+**Read the diff for deletions too.** Two `sf` behaviours leave the tree wrong while the command reports success:
+
+- **Retrieve never deletes.** A component removed in the org leaves its local file untouched, so the deletion never appears in the diff. Deploy that stale file back and you recreate what someone deliberately removed. A file count at or above baseline is not evidence of correctness — it is equally the signature of an undetected deletion. For a wildcard or whole-type retrieve, reconcile the org's `list metadata` fullNames against the on-disk component names.
+- **A container and its child type share one file, and the later retrieve wins.** Retrieving a child type alone rewrites the shared file with only that child's members, silently dropping the container's. Worst with the rule-container types (sharing rules, workflow, matching/assignment/auto-response/escalation rules, custom labels). So: **retrieve the container, not the child** — and if you already retrieved a child type, re-retrieve its container and confirm the file is back to the union before editing or deploying.
+
 ## Step 4 — Recheck freshness before deploy
 
-Immediately before deployment, compare intended components against the org again without retrieving over edited working files — query `LastModifiedDate` / `LastModifiedById` (Tooling API) or retrieve into a throwaway `--target-metadata-dir`, and diff against the timestamps captured at Step 2. Tooling covers Apex, fields, objects, layouts, FlexiPages, Flows, perm sets, LWC/Aura; the Omni types are **not** Tooling objects — use the standard data API, or `vlocity_cmt__*` on a Vlocity CMT org. Deploy promptly after a clean check; the shorter that gap, the smaller the overwrite race. Any drift requires merge, revalidation/tests, and rerunning all three Gate B critics on the new revision. `--ignore-conflicts` never authorizes overwriting newer org work.
+Immediately before deployment, compare intended components against the org again without retrieving over edited working files — query `LastModifiedDate` / `LastModifiedById` (Tooling API) or retrieve into a throwaway `--target-metadata-dir`, and diff against the timestamps captured at Step 2. Tooling covers Apex, fields, objects, layouts, FlexiPages, Flows, perm sets, LWC/Aura; the Omni types are **not** Tooling objects — use the standard data API, or `vlocity_cmt__*` on a Vlocity CMT org. Deploy promptly after a clean check; the shorter that gap, the smaller the overwrite race. Any drift requires merge, revalidation/tests, and rerunning the Gate B critics on the new revision. `--ignore-conflicts` never authorizes overwriting newer org work.
 
 ## Scope
 
 - Default org alias is `{{ORG_ALIAS}}` (sandbox).
-- This skill is about **single-file or scoped** retrieves in the normal edit loop. For full-org refreshes, see `manifest/fullpackage/` (11 pre-sharded manifests) — don't run a single org-wide `*` retrieve, it hits the 10k component limit.
+- This skill is about **single-file or scoped** retrieves in the normal edit loop. For a full-org refresh, follow `docs/org-mirror/README.md` — never a single org-wide `*` retrieve, which exceeds the per-call cap on any non-trivial org.
 - Schema TOON files under `config/schema/` are regenerated separately via `python3 scripts/schemapy/auto_generate_schema.py`, not by this retrieve flow.
 
 ## When NOT to use

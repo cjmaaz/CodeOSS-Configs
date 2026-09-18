@@ -34,7 +34,7 @@ The final doc's ACs MUST be the transcribed text — never "see attached screens
 Salesforce cascades hard: one insert → process builder → flow → trigger → another trigger touching a third sObject. Map it before coding. Run as a `TodoWrite` plan (one entry each):
 
 - **E1 — Identify the touched surface:** sObjects (confirm shapes via `schema-lookup`), triggers (`grep -l "<sObject>" force-app/main/default/triggers/*.trigger`), flows, validation rules, OmniStudio (grep the IP/DR/OS dirs), Apex callers, custom metadata.
-- **E2 — Map cascading impact:** for each create/update/delete, walk downstream (which triggers + flows fire, what DML, which other sObjects) recursively. Sketch a mermaid `flowchart`.
+- **E2 — Map cascading impact:** for each create/update/delete, walk downstream (which triggers + flows fire, what DML, which other sObjects) recursively. Sketch a mermaid `flowchart` per `docs/diagram-conventions.md` — **one subgraph per component**, never per logical phase; legend line immediately above the fence; colour for state only (amber = the defect, red = dead end, grey = left unreachable). The LLD carries two such diagrams (current and proposed) sharing the same node IDs so a reader can diff them by eye.
 - **E3 — Classify intended vs accidental:** tag each downstream effect. **Each ACCIDENTAL effect → a question to the user BEFORE coding.**
 - **E4 — Author the draft LLD FIRST** (below). Don't edit source until current behavior, gap, and proposed design exist; reading current source is required.
 - **E5 — Pass adversarial Gate A** via the `adversarial-review` skill. Record reviewer provenance, exact LLD revision, findings/dispositions, residual risk, and re-review. Resolve blockers before editing.
@@ -54,11 +54,11 @@ Two **conditional** companions (don't produce by reflex): `docs/lld/<work-id>-qu
 
 ## Touchpoint 3 — Implementation gate + wrap-up (`changes/` doc + two-commit)
 
-When implementation/validation tests are ready, run Gate B through `adversarial-review` before a real deploy/mutation/commit. Supply the evidence pack (base SHA, explicit changed-path list, `git diff --stat`) plus the profile's validation output. After deploy verification and code commit, finalize the change doc and give it its own Gate B under the **agent-guidance** profile before the doc commit.
+When implementation/validation tests are ready, run Gate B through `adversarial-review` — if the gate applies — before a real deploy/mutation/commit. Supply the evidence pack (base SHA, explicit changed-path list, `git diff --stat`) plus the profile's validation output. **The change doc does not get its own gate**: it records work the gates already reviewed, so reviewing the record adds cost without adding coverage. Finalize it after deploy verification and the code commit, then commit it.
 
 ### Template + name
 
-Copy from `changes/_templates/` → `changes/<short-kebab-slug>.md`: `_TEMPLATE_bugfix.md`, `_TEMPLATE_story.md`, `_TEMPLATE_refactor.md`, or `_TEMPLATE_retrieve.md` (org-wide mirror retrieve → saves to `changes/git/retrieve-<date>-<alias>.md`; follow `docs/sf-org-mirror-retrieve.md`, plan-first). Slug = kebab description, NOT the ticket number.
+Copy from `changes/_templates/` → `changes/<short-kebab-slug>.md`: `_TEMPLATE_bugfix.md`, `_TEMPLATE_story.md`, `_TEMPLATE_refactor.md`, or `_TEMPLATE_retrieve.md` (org-wide mirror retrieve → saves to `changes/git/retrieve-<date>-<time>-<alias>.md`; follow `docs/org-mirror/README.md`, plan-first; `change_kind: retrieve_mirror` = **Gate B only**, on the finished audit). Slug = kebab description, NOT the ticket number.
 
 ### Header block
 
@@ -69,6 +69,9 @@ Copy from `changes/_templates/` → `changes/<short-kebab-slug>.md`: `_TEMPLATE_
 **Story / ticket:** [<TRACKER-NNN>](<url>) — <one-line summary>
 **Code commit(s):** [`<short-hash>`](#deploy-ids-and-commit-references)
 **Manifest:** [`manifest/<feature>.xml`](../manifest/<feature>.xml) (XML inlined in the Deploy-IDs section)
+**Step-by-step test evidence:**
+- `<test-org-alias>` — [`docs/ut/<work-id>/<slug>-<alias-slug>-step-by-step-test.md`](../docs/ut/<work-id>/<slug>-<alias-slug>-step-by-step-test.md) · initial `<hash / pending>` · verified `<hash / pending tester>`
+- `<additional-org-alias>` — `<guide + initial/verified hashes, repeat as needed>` / n/a
 **Status:** Resolved / Delivered / In progress
 ```
 
@@ -76,7 +79,7 @@ Copy from `changes/_templates/` → `changes/<short-kebab-slug>.md`: `_TEMPLATE_
 
 ### Two-commit strategy: code first, doc second
 
-Prerequisite: Gate B is `PASS` or `PASS_WITH_FINDINGS`; no Critical/High; every Medium resolved or explicitly accepted.
+Prerequisite where Gate B applied: `PASS` or `PASS_WITH_FINDINGS`; no Critical/High; every Medium resolved or explicitly accepted. Where it did not apply or the user waived it, the one-line record of that is the prerequisite instead.
 
 Immediately before the code commit, re-run `git diff --name-only <base>` and confirm the changed-path list still matches what Gate B reviewed; a path appearing or vanishing is a new revision and reruns the gate. Before the doc commit the doc must be final — all IDs, hashes, and prose already filled in.
 
@@ -84,7 +87,7 @@ Immediately before the code commit, re-run `git diff --name-only <base>` and con
    If unrelated dirty work prevents a complete Gate B snapshot, use an isolated worktree or stop/coordinate; never omit changed paths and claim complete review.
 2. Commit the code with a multi-line HEREDOC message (subject ≤72 chars imperative; what/why; sub-changes).
 3. Capture the hash: `git log -1 --format='%H%n%h%n%s'`.
-4. Finalize the doc, run its agent-guidance-profile Gate B, fill in the Gate A/B outcome sections, then commit it SEPARATELY.
+4. Finalize the doc, fill in the Gate A/B outcome sections, then commit it SEPARATELY. The doc itself is not gated.
 5. Verify: `git log -2` + `git status -s`; report both hashes.
 
 ### Filling the doc
@@ -94,6 +97,7 @@ Immediately before the code commit, re-run `git diff --name-only <base>` and con
 - Revision log (top): first row = date, hash, what, why.
 - Adversarial review: record Gate B status/revision, reviewer provenance, category coverage, findings/dispositions, residual risk, and re-review; link Gate A details from the LLD.
 - **Key changes — diff highlights:** for OmniScripts / IPs / DataRaptors / FlexiPages / layouts / validation rules / formula fields / new Apex, paste a trimmed ```diff``` (small/medium) OR cite line ranges + key method names (large/new). Skip only for 1-2 line obvious changes.
+- Link the step-by-step guide and add `### Acceptance-criteria visual delta`: paired component-scoped before/current Mermaid excerpts for visual ACs, each linked to the matching guide anchor. Data-only ACs state `n/a` and keep query/log evidence.
 - Replace every `<...>`; delete the guidance comments; write `n/a` (+ reason) for inapplicable sections. Keep the **Gate A / Gate B outcome** sections — they are the review's audit trail, not guidance.
 
 ### Same thread, same doc
@@ -102,15 +106,22 @@ Iterating on the SAME flow/class/OmniScript → ONE doc. Append the new hash to 
 
 ---
 
-## UT / UAT evidence docs (when asked)
+## Post-implementation step-by-step AC testing
 
-When asked for a "UT doc", "UAT doc", "test evidence", "QA walkthrough", or "screenshot proof": produce a minimal, screenshot-heavy before→after walkthrough proving each AC by running the REAL process. Evidence beats prose.
+Automatically create a guide after implementation when the delivery has manually testable ACs; also trigger on "UT/UAT doc", "test evidence", "QA walkthrough", or "screenshot proof". If none are manually testable, put `n/a` in the change doc.
 
-**Shape:** `docs/ut/<work-id>/<slug>.md` + sibling `assets/` (+ optional PDF). One `#` title + ONE intro line; one `##` per scenario (`AC1`…), each = ONE sentence (condition → expected) + before + after screenshots, captions naming concrete IDs. NO Purpose/Components/Reproduce/Summary sections. Names: `ac1-before-<what>.png`, `ac1-after-<what>.png`.
+Copy `docs/_templates/_TEMPLATE_step-by-step-test.md` to `docs/ut/<work-id>/<slug>-<alias-slug>-step-by-step-test.md` with `assets/<alias-slug>/` (+ optional PDF). Its intro links back to the change doc's `#acceptance-criteria-visual-delta`; each AC/scenario gets one detailed `##`.
 
-**Protocol:** (1) FIND a real record the process picks up (prefer real over synthetic); if none, MODIFY one, or FORCE the gap for a negative case. (2) **Snapshot everything you modify** so it restores. (3) Include negative/bulk/concurrency/regression scenarios required by accepted Gate A/Gate B findings. (4) Verify eligibility + blast radius with a query BEFORE running. (5) Capture all before → run the ACTUAL shipped process ONCE (not the underlying function) → verify with queries → capture all after. (6) **Roll back** staged changes; LEAVE the process-created records (the evidence). For virtualized/iframed lists, scroll the container programmatically until the target row renders, then screenshot — never fake it.
+1. Record the test alias + Org ID. Use the user-supplied alias or project default. For an additional/higher alias, create a separate alias-qualified guide/assets set, rediscover records there, and keep it read-only until exact actions, scope, side effects, cleanup, approver, and timestamp are authorized.
+2. Find a real eligible record; snapshot/restore any staged fields. Carry accepted Gate negative/bulk/concurrency/regression cases.
+3. Record exact, distinctive non-sensitive inputs and detailed UI steps: path, field label, value, button, expected result, safe stop.
+4. Every created record needs at least one deterministic parent/marker/time-window query or exact UI discovery path; include both when available. Never leave an ID blank with no discovery method or rely only on "newest record".
+5. Give each scenario stable `<scenario-anchor>-test` and `<scenario-anchor>-visual-delta` anchors with direct links both ways. Capture real before/current screenshots under `assets/<alias-slug>/`, named from the scenario anchor and captioned with alias, record ID, and values. If no safe runtime-before exists, replace the image with `source-backed baseline only`; never fake it.
+6. Run the actual shipped process only after applicable Gate B, query outcomes, restore staged source values, and leave process-created evidence.
+7. Hand the unchecked guide to the tester. When they say done, independently repeat the recorded read-only query and/or exact UI discovery path against the declared alias; verify IDs, parents, marker/time, exact values, counts, relationships, and no hidden/duplicate records. Fill proven blanks, correct errors, and leave unproved steps unchecked.
+8. Never rerun/mutate solely to finish the guide; ask first.
 
-**Commit (only when asked, two-commit, explicit staging):** Commit 1 = staging/rollback scripts + UT doc + assets + PDF. Commit 2 = backfill the living doc with links, referencing commit 1's hash.
+Commit only when asked: guide/assets commit → living-doc link/hash backfill commit. After tester completion: verified-guide commit → verified-results hash backfill commit.
 
 ---
 
@@ -118,10 +129,10 @@ When asked for a "UT doc", "UAT doc", "test evidence", "QA walkthrough", or "scr
 
 - Starting code without a confirmed ticket (extract or ASK — never guess), or without renaming the chat `<ticket> - <description>`; treating a screenshot as the source of truth; "see attached screenshot" in §3.
 - Writing the LLD AFTER coding; producing questions-and-kt / walkthrough by reflex; duplicating the full design into both LLD and change doc.
-- Skipping/serializing/coaching reviewers, using fewer than three, self-certifying when subagents are unavailable, majority-voting away blockers, or relying on a verdict for a materially changed plan/diff.
+- Skipping a gate that applies, or gating work the review rule exempts; serializing or coaching reviewers; using fewer than the two defect critics plus the minimality critic; self-certifying when subagents are unavailable; majority-voting away blockers; relying on a verdict for a materially changed plan/diff; or informally re-running a gate the user waived.
 - Inlining the doc into the code commit; `git add force-app/` (blanket) when another agent may be active; including a file you didn't touch.
 - Missing the `**Manifest:**` line; skipping Diff-highlights for OmniScripts/IPs/DRs/layouts; pasting a 500-line file into a diff fence.
-- UT: synthetic data when a real record exists; modifying real records without snapshot+rollback; calling the underlying function instead of the shipped process; a report screenshot that doesn't show the target row.
+- UT/UAT: synthetic data when a real record exists; no snapshot/rollback; helper instead of shipped process; IDs reused across orgs; unspecified form values; no created-record discovery path; trusting checkmarks without queries; fake before screenshots; or screenshots that omit the target row.
 
 ## Adapting to other projects
 

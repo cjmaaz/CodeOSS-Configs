@@ -2,7 +2,7 @@
   TEMPLATE: Low-Level Design (LLD)
   ================================
   Copy this file to docs/lld/<work-id>-<short-kebab-slug>.md and fill it in.
-  Delete guidance comments, but KEEP the `9.1 Mandatory adversarial Gate A`
+  Delete guidance comments, but KEEP the `9.1 Adversarial Gate A`
   section in full (heading, all three tables, and the bold summary lines).
   It is the review's audit trail, not guidance.
   Strip any section that genuinely does not apply (write "n/a — <reason>").
@@ -88,7 +88,12 @@
 
 <!-- How the system behaves TODAY on the path you are about to change. Cite the
      concrete entry points, the engine/component, and what it does AND does not
-     do. A mermaid flowchart of the current path helps. -->
+     do.
+
+     The diagram below follows docs/diagram-conventions.md: ONE SUBGRAPH PER
+     COMPONENT (not per logical phase), a legend line immediately above the
+     fence, colour for STATE only, and the defect in amber. Keep the node IDs
+     identical to the §7.3 diagram so a reader can diff the two by eye. -->
 
 ### 4.1 Entry points
 
@@ -99,12 +104,28 @@
 <the single place the behavior lives (file / path); what it changes and what it
 leaves untouched.>
 
+**Legend — every dashed box is one component.** <only the symbols this diagram uses, e.g.> 🔷 this Flow · 🟣 Apex · 📄 org data (config, not code) · 👥 queue. Green = working, amber = the problem, red = dead end.
+
 ```mermaid
 flowchart TD
-  A[Trigger / entry point] --> B[Current engine]
-  B --> C{Existing guard?}
-  C -->|yes| Keep[Skip]
-  C -->|no| Apply[Apply change]
+    subgraph F1["🔷 FLOW · <ComponentName> — <one-line role, e.g. active screen flow, user context>"]
+        A["<entry point>"] --> B["<b><the element that matters></b><br/><what it does · what it omits><br/>⚠ <why that is wrong>"]
+        B --> C{"<decision element>"}
+        C -->|"<real predicate value>"| OK["… the working path …"]
+        C -->|"<other value — default>"| DEAD["<b><element></b><br/>NO CONNECTOR<br/><what happens instead>"]
+    end
+
+    subgraph D1["📄 ORG DATA · <Object__c> — config, not code"]
+        T1["<row 1>"]
+        T2["<row 2>"]
+    end
+
+    B -.->|"⚠ <what the reference relationship is>"| T1
+
+    style B fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+    style C fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+    style DEAD fill:#ffd9d9,stroke:#c00,stroke-width:2px
+    style OK fill:#d9f2d9,stroke:#080
 ```
 
 ---
@@ -151,11 +172,33 @@ keep it implementation-shaped, not the final code.>
 
 <the exact insertion point(s) in the existing flow; what stays unchanged.>
 
+<!-- Same conventions and the SAME NODE IDs as §4, so the amber node there is the
+     green node here and the reader's eye tracks it. Mark elements ✨ new /
+     🔧 modified / ♻️ reused-as-is, and grey out anything left deliberately
+     unreachable rather than deleting it from the picture. -->
+
+**Legend.** <symbols used> 🔷 this Flow · 🔒 permissions · 👥 queue. Markers: ✨ new element · 🔧 modified · ♻️ existing, reused · grey = left unreachable.
+
 ```mermaid
 flowchart TD
-  D[Entry] --> Q{New condition?}
-  Q -->|no| Old[Today's behavior]
-  Q -->|yes| New[New path]
+    subgraph F1["🔷 FLOW · <ComponentName> — everything this story edits"]
+        A["<entry point>"] -->|"(a) rewired"| B["<b><the element that matters></b> 🔧<br/><what it does now>"]
+        B --> NEW["<b><new element></b> ✨<br/><what it guards>"]
+        NEW -->|"<outcome>"| OK["… the working path …"]
+        UNR["<retired element(s)><br/>(c) left in place, unreachable"]
+    end
+
+    subgraph P1["🔒 PERMISSIONS — (d)"]
+        PERM["<grant needed to make the new filter readable>"]
+    end
+
+    PERM -.->|"<why the grant is required>"| B
+
+    style B fill:#d9f2d9,stroke:#080,stroke-width:2px
+    style NEW fill:#d9f2d9,stroke:#080
+    style OK fill:#d9f2d9,stroke:#080
+    style PERM fill:#e6d9f2,stroke:#63c
+    style UNR fill:#eeeeee,stroke:#999,color:#777
 ```
 
 ### 7.4 Why this approach
@@ -191,10 +234,10 @@ flowchart TD
 - <effect 1 — intended / accidental, and why.>
 - <effect 2 ...>
 
-### 9.1 Mandatory adversarial Gate A
+### 9.1 Adversarial Gate A
 
 <!--
-  Launch three independent critics in ONE parallel fan-out against the exact
+  Launch two defect critics plus one minimality critic in ONE parallel fan-out against the exact
   plan revision above. Follow .cursor/rules/adversarial-review.mdc. Do not edit
   source until this gate passes. When a revision triggers re-review, add rows —
   supersede the old verdict, never erase it.
@@ -202,16 +245,19 @@ flowchart TD
   Keep this whole section in the finished doc; it is the review's audit trail.
 -->
 
+**Gate status:** `Ran` / `Not required — <which materiality condition failed>` / `Waived by the user on <date>`
 **Scope contract:** `<owned surface (explicit paths) | blast radius | not owned | out of scope + reason>`
+**Packaged surface:** `none` / `<packaged path + the public member added + the user's recorded confirmation>`
 **Profile / change kind:** `<Salesforce delivery | agent-guidance | other>` / `<existing_modified | greenfield | retrieve_mirror>`
 **Evidence pack:** `<base SHA, HEAD SHA, changed-path list, paths to any test / PMD / log output>`
 **Parallel dispatch:** `<single timestamp proving all three launched together>`
+**Minimality feed-forward:** `n/a (no accepted minimality finding)` / `<the accepted finding + its disposition, as supplied to both defect critics on revision N>`
 
 | Critic / run | Independent lens | Revision reviewed | Verdict |
 |---|---|---|---|
-| `<id>` | `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 3>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 1 — `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 2 — `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | **Minimality** — fewer components, fewer changes | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
 
 | Attack category | Result | Evidence / finding IDs |
 |---|---|---|

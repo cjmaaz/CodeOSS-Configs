@@ -113,7 +113,7 @@ Diagnostic: if the parent IP's `OmniProcessCompilation.LastModifiedDate` predate
 
 ## Edge cases
 
-- **Dry-run/deploy reports `Unchanged`:** the pre-Gate-B description flip didn't persist. Stop before mutation, fix it, then rerun all three critics against the new revision.
+- **Dry-run/deploy reports `Unchanged`:** the pre-Gate-B description flip didn't persist. Stop before mutation, fix it, then rerun the gate's critics against the new revision.
 - **OmniScripts add a browser cache layer:** after the server-side bust, hard-refresh (Cmd/Ctrl+Shift+R) the host Lightning page, or sign out/in.
 
 ## Self-check (before declaring success)

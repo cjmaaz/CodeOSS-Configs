@@ -2,7 +2,7 @@
   TEMPLATE: Refactor / tech-debt / optimization changes doc
   =========================================================
   Copy this file to changes/<short-kebab-slug>.md and fill it in.
-  Delete guidance comments, but KEEP the `Mandatory adversarial Gate B`
+  Delete guidance comments, but KEEP the `Adversarial Gate B`
   section in full (heading, all three tables, and the bold summary lines).
   It is the review's audit trail, not guidance.
   Strip any sections that genuinely do not apply.
@@ -20,6 +20,9 @@
 **Story / ticket:** [<TRACKER-NNN>](<url>) — <one-line summary> (or "internal tech-debt cleanup" if no ticket)
 **Code commit(s):** [`<short-hash>`](#13-deploy-ids-and-commit-references) (latest; full list in section 13)
 **Manifest:** [`manifest/<feature>.xml`](../manifest/<feature>.xml) (the deploy manifest used; XML inlined in section 13)
+**Step-by-step test evidence:**
+- `<test-org-alias>` — [`docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md`](../docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md) · initial `<hash / pending>` · verified `<hash / pending tester>`
+- `<additional-org-alias>` — `<guide + initial/verified hashes, repeat as needed>` / n/a
 **Status:** Delivered / Functional parity verified, perf gain pending measurement / In progress
 **Adversarial Gate B:** Pending / PASS / PASS_WITH_FINDINGS / BLOCK
 **Implementation revision reviewed:** `<base SHA..HEAD + explicit changed-path list>`
@@ -120,7 +123,7 @@
 
 <!--
   ──────────────────────────────────────────────────────────────────────
-  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E5 — keep it a summary that links to the LLD)
+  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E6 — keep it a summary that links to the LLD)
   ──────────────────────────────────────────────────────────────────────
   Both halves of this diagram belong UP FRONT, before any code edit.
     - The BEFORE half is the output of Step E1 + Step E2 from the
@@ -134,19 +137,53 @@
       of the section.
   Update the AFTER half at wrap-up if the implementation diverged, but
   never start with the section blank.
+
+  Node labels, legends, and the colour palette follow
+  docs/diagram-conventions.md. Use separate before/after diagrams and one
+  subgraph per deployable component — never state-named BEFORE/AFTER subgraphs.
+  Keep unchanged node IDs identical across both diagrams.
 -->
 
+**Before legend.** <only the symbols used> 🟣 Apex · 🟢 LWC renderer. Amber = the shape being retired.
+
 ```mermaid
-flowchart LR
-  subgraph before [Before]
-    B1[Caller] --> B2[Monolith]
-    B2 --> B3[Side effect]
-  end
-  subgraph after [After]
-    A1[Caller] --> A2[Service]
-    A2 --> A3[Repository]
-    A3 --> A4[Side effect]
-  end
+flowchart TD
+    subgraph C1["🟣 APEX · <CallerClass> — entry point"]
+        CALL["<CallerMethod>"]
+    end
+    subgraph M1["🟣 APEX · <MonolithClass> — responsibilities being separated"]
+        MONO["<b><MonolithMethod></b><br/><what it conflates>"]
+    end
+    subgraph F1["🟣 APEX · <SideEffectClass> — downstream behavior"]
+        FX["<SideEffectMethod>"]
+    end
+
+    CALL --> MONO --> FX
+
+    style MONO fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+```
+
+**After legend.** <only the symbols used> 🟣 Apex · 🟢 LWC renderer. Markers: ✨ new · 🔧 modified · ♻️ reused. Green = the target shape.
+
+```mermaid
+flowchart TD
+    subgraph C1["🟣 APEX · <CallerClass> — entry point"]
+        CALL["<CallerMethod> ♻️<br/>unchanged contract"]
+    end
+    subgraph S1["🟣 APEX · <ServiceClass> — focused orchestration"]
+        SVC["<b><ServiceMethod></b> ✨"]
+    end
+    subgraph R1["🟣 APEX · <RepositoryClass> — data access"]
+        REPO["<RepositoryMethod> ✨"]
+    end
+    subgraph F1["🟣 APEX · <SideEffectClass> — downstream behavior"]
+        FX["<SideEffectMethod> ♻️"]
+    end
+
+    CALL --> SVC --> REPO --> FX
+
+    style SVC fill:#d9f2d9,stroke:#080,stroke-width:2px
+    style REPO fill:#d9f2d9,stroke:#080
 ```
 
 | Aspect | Before | After |
@@ -169,7 +206,7 @@ flowchart LR
   way), call it out separately so reviewers don't miss it.
 
   ──────────────────────────────────────────────────────────────────────
-  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E5 — keep it a summary that links to the LLD)
+  FILL UP FRONT (per `.cursor/rules/documentation-workflow.mdc` Step E6 — keep it a summary that links to the LLD)
   ──────────────────────────────────────────────────────────────────────
   The invariant list is itself the output of Step E3 (intended-vs-
   accidental side-effect classification). Every INTENDED row from E3
@@ -310,6 +347,51 @@ sf apex run test --class-names <TestClass1>,<TestClass2> -o <sandbox-alias> \
 | AC1 | <test/scenario> | <result/log/snapshot> | yes/no |
 | INV1 | <old-vs-new comparison> | <evidence> | yes/no |
 
+### Acceptance-criteria visual delta
+
+<!--
+  Use this only for visually observable ACs/invariants. A refactor normally
+  proves parity: real before/current screenshots should match even if internal
+  component ownership changed. Link to the detailed guide. Use separate,
+  component-scoped Mermaid excerpts with stable node IDs; never BEFORE/AFTER
+  state subgraphs. Data-only invariants stay in the table above.
+-->
+
+<a id="<scenario-anchor>-visual-delta"></a>
+#### <scenario-id> — <visible behavior preserved>
+
+[Run the detailed `<scenario-id>` checklist](../docs/ut/<work-id>/<test-slug>-<alias-slug>-step-by-step-test.md#<scenario-anchor>-test). Full diagrams: [current](../docs/lld/<work-id>-<slug>.md#4-current-behavior-as-built) · [proposed](../docs/lld/<work-id>-<slug>.md#73-where-it-plugs-in).
+
+Choose a real screenshot or `n/a — source-backed baseline only`:
+
+![Before — <test-org-alias>, <record label/id>, <visible value>](../docs/ut/<work-id>/assets/<alias-slug>/<scenario-anchor>-before-<what>.png)
+
+**Before excerpt. Legend:** 🟣 Apex · 🟢 LWC. Amber = old internal route; the visible outcome is the parity target.
+
+```mermaid
+flowchart TD
+    subgraph C1["<SYMBOL> <TYPE> · <ComponentName> — <scenario-id> excerpt"]
+        ENTRY["<entry>"] --> ROUTE["<b><old internal route></b>"] --> OUTCOME["<visible outcome><br/><parity value>"]
+    end
+
+    style ROUTE fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+    style OUTCOME fill:#d9f2d9,stroke:#080
+```
+
+![Current — <test-org-alias>, <record label/id>, <same visible value>](../docs/ut/<work-id>/assets/<alias-slug>/<scenario-anchor>-after-<what>.png)
+
+**Current excerpt. Legend:** 🟣 Apex · 🟢 LWC. Green = verified parity.
+
+```mermaid
+flowchart TD
+    subgraph C1["<SYMBOL> <TYPE> · <ComponentName> — <scenario-id> excerpt"]
+        ENTRY["<entry>"] --> ROUTE["<b><new internal route></b> 🔧"] --> OUTCOME["<visible outcome> ♻️<br/><same parity value>"]
+    end
+
+    style ROUTE fill:#d9f2d9,stroke:#080,stroke-width:2px
+    style OUTCOME fill:#d9f2d9,stroke:#080,stroke-width:2px
+```
+
 ### Side-by-side comparison (if possible)
 
 | Input | Old output | New output | Match |
@@ -345,24 +427,27 @@ sf apex run test --class-names <TestClass1>,<TestClass2> -o <sandbox-alias> \
 | <e.g. "missed caller in another package"> | low/med/high | low/med/high | <e.g. "global search confirmed zero references"> |
 | <e.g. "subtle semantics drift in null-handling"> | low/med/high | low/med/high | <e.g. "added test case TestX.testNullPath"> |
 
-### Mandatory adversarial Gate B
+### Adversarial Gate B
 
 <!--
-  Three independent critics in ONE parallel fan-out; see
+  Two defect critics plus one minimality critic in ONE parallel fan-out; see
   .cursor/rules/adversarial-review.mdc. Keep this whole section in the finished
   doc — it is the review's audit trail, not guidance.
 -->
 
+**Gate status:** `Ran` / `Not required — <which materiality condition failed>` / `Waived by the user on <date>`
 **Scope contract:** `<owned surface (explicit paths) | blast radius | not owned | out of scope + reason>`
+**Packaged surface:** `none` / `<packaged path + the public member added + the user's recorded confirmation>`
 **Profile / change kind:** `<Salesforce delivery | agent-guidance | other>` / `<existing_modified | greenfield | retrieve_mirror>`
 **Evidence pack:** `<base SHA, HEAD SHA, changed-path list, validation job id, test/coverage + PMD output, operation-bound log IDs, freshness recheck>`
 **Parallel dispatch:** `<single timestamp proving all three launched together>`
+**Minimality feed-forward:** `n/a (no accepted minimality finding)` / `<the accepted finding + its disposition, as supplied to both defect critics on revision N>`
 
 | Critic / run | Lens | Revision reviewed | Verdict |
 |---|---|---|---|
-| `<id>` | `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | `<profile lens 3>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 1 — `<profile lens 1>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Defect lens 2 — `<profile lens 2>` | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | **Minimality** — fewer components, fewer changes | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
 
 | Mandatory attack category | Result | Evidence / finding IDs |
 |---|---|---|

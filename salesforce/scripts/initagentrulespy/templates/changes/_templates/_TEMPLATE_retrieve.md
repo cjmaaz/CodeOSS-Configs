@@ -2,7 +2,7 @@
   TEMPLATE: Retrieve audit doc
   ============================
   Auto-generated after every full org-wide retrieve described in
-  `docs/sf-org-mirror-retrieve.md`. The agent should copy this file to:
+  `docs/org-mirror/README.md`. The agent should copy this file to:
 
     changes/git/retrieve-<YYYY-MM-DD>-<HHMM>-<sandbox-alias>.md
 
@@ -28,13 +28,13 @@
   ─────────────────────────────────────────────────────────────────────
 
   This template is only filled in AFTER the agent has completed the
-  multi-phase retrieve described in `docs/sf-org-mirror-retrieve.md`
+  multi-phase retrieve described in `docs/org-mirror/README.md`
   Phase 0 through Phase 2.22. That runbook (Phase 0.0) requires the
   agent to spawn an EXPLICIT TodoWrite plan covering every phase + the
   audit sub-phases + both git commits BEFORE running any `sf` command.
 
   If you arrived at this template without having spawned that plan, STOP
-  and read `docs/sf-org-mirror-retrieve.md` § Phase 0.0 first — the
+  and read `docs/org-mirror/README.md` § Phase 0.0 first — the
   plan-first discipline makes the long-running sequence resumable on
   partial failure (transient org timeouts, sandbox restarts, agent
   crashes). Skipping it means a mid-run failure is ambiguous about what
@@ -55,7 +55,7 @@
   That whole-org snapshot IS the unit of work — splitting it would defeat
   the bisect-by-retrieve-date purpose of the audit.
 
-  Follow Phase 3 of `docs/sf-org-mirror-retrieve.md` for the exact staging
+  Follow Phase 3 of `docs/org-mirror/README.md` for the exact staging
   + commit pattern; do NOT try to apply selective staging here.
 
   Similarly, this template does NOT carry a "Revision log" or
@@ -75,8 +75,10 @@
 **Phases run:** <N> of <total> (e.g. "23 of 23" or "22 of 23 — Phase 1.4 skipped, see §7")
 **Wall-clock:** ~XX min
 **Outcome:** Succeeded / Partial (M failures, see §7) / Failed
-**Gate A plan outcome:** `<critic IDs / verdicts / plan revision reviewed>`
 **Adversarial Gate B (audit review):** Pending / PASS / PASS_WITH_FINDINGS / BLOCK
+<!-- change_kind: retrieve_mirror runs Gate B ONLY. There is no plan-stage gate:
+     a retrieve is read-only and its plan is generated from the footprint, so
+     coverage/exclusion/sizing scrutiny happens HERE, against what actually ran. -->
 **Mirror revision reviewed:** `<PRE_HEAD..working tree + per-type churn output>`
 **Mirror commit:** [`<short-hash>`](#9-mirror-commit-reference) (this doc references the metadata-snapshot commit; see §9)
 **Doc commit:** (this commit — the audit doc itself)
@@ -128,34 +130,60 @@
 | 0.2 | Log rotation | OK | ~Xs |
 | 0.3 | Footprint discovery | OK | Xs |
 | 0.4 | WIP check + PRE_HEAD | OK — `<stash+pop / continue>` | ~Xs |
-| 0.5 | Shard plan built | OK | ~Xs |
-| 0.A | **Adversarial Gate A** | PASS / PASS_WITH_FINDINGS / BLOCK | ~Xs |
+| 0.5 | Order files generated (`make-order-files.sh`) | OK | ~Xs |
 | 1.N | `<shard name>` | Succeeded | Xs |
 | 2.NN | `<Type>` | Succeeded | Xs |
+| 2.5 | Deletion-detection sweep | Clean / `<N>` residue entries | ~Xs |
 | 3.4.B | **Adversarial Gate B** (audit review) | PASS / PASS_WITH_FINDINGS / BLOCK | ~Xs |
+
+<!-- Per-phase status, wall-clock, and files-written come from
+     .retrieve-logs/current/_progress.tsv — do not retype them from memory. -->
 
 ---
 
 ## 2.1 Type coverage & sizing (from Phase 0.3 / 0.5)
 
 <!--
-  The footprint that drove this run's shard plan, plus every coverage decision.
-  Gate A lens 1 attacks missing frequently-changing types and challenges every
-  exclusion reason recorded here; Gate B lens 3 attacks any exclusion with no
-  reason. Source: .retrieve-logs/current/_footprint.tsv and _types-uncovered.txt.
+  The footprint that drove this run, plus every coverage decision. Gate B lens 1
+  attacks missing dev-cadence types, unexplained exclusions, undated carry-forward,
+  and any floor changed mid-run. Sources: .retrieve-logs/current/_footprint.tsv,
+  _types-uncovered.txt, _exclusions.tsv, _plan-notes.txt, _cap-blocked.tsv.
 -->
 
-| Type | Live count (Phase 0.3) | Pass | Why |
-|---|---:|---|---|
-| `<Type>` | N | solo / bundled | near the 10k cap / slow per record / trivial |
+| Type | Live count (Phase 0.3) | Tier | Pass | Why |
+|---|---:|---|---|---|
+| `<Type>` | N | A / B | solo / bundled | near the cap / slow per record / trivial |
 
 **Excluded types and reasons** (one row per entry you chose not to cover):
 
 | Type | Reason for exclusion |
 |---|---|
-| `<Type>` | rarely changes in a code workflow / not licensed / owned by another team / not supported by this org |
+| `<Type>` | Tier B carry-forward, last pulled `<date>` / rejects wildcard members, known gap / not licensed / owned by another team / not supported by this org |
 
-**OmniStudio flavour:** `standard MDAPI` / `Vlocity CMT — out of recurring scope (baseline exported <date>, ref <commit>)`
+**Tier B carry-forward** — content on disk that this run did NOT retrieve. Date every
+row. Presenting carry-forward as current is the specific dishonesty the tier split
+exists to prevent, and Gate B lens 1 attacks any row without a date:
+
+| Type | Files on disk | Last actually retrieved | Why not this run |
+|---|---:|---|---|
+| `<Type>` | N | `<YYYY-MM-DD>` | binary; size cap binds before the file cap |
+
+**Enumerated-empty** — types that enumerated zero. Not "covered", not "absent":
+
+| Type | Evidence it is enumerability, not absence |
+|---|---|
+| `<Type>` | parent type enumerates N; child enumerates 0 |
+
+**Cap-blocked** — types the generator commented out for exceeding the per-call cap.
+Each is ABSENT from this mirror until sharded (`n/a` if `_cap-blocked.tsv` was empty):
+
+| Type | Est. files vs cap | Resolution |
+|---|---|---|
+| `<Type>` | N vs N | sharded into `<n>` enumerated phases / deferred, still absent |
+
+**Floors changed mid-run** (from `_plan-notes.txt`, `n/a` if none): `<phase — old → new — why the generated floor was wrong>`
+
+**OmniStudio flavour:** `standard runtime — retrieved, version-pairs diffed` / `managed package — out of recurring scope (baseline exported <date>, ref <commit>); on-disk Omni is carry-forward, not a completeness claim`
 
 ---
 
@@ -358,7 +386,7 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 
 <!--
   Sections 6.1-6.4 are heuristic flags generated mechanically from the diff;
-  they are inputs to mandatory Gate B in §6.5. A validated High/Critical
+  they are inputs to mandatory Gate B in §6.6. A validated High/Critical
   adversarial finding DOES block the mirror commit/handoff until resolved
   and re-reviewed. If a heuristic sub-bucket is benign, write "no flags".
 -->
@@ -417,7 +445,36 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 |---|---|---|
 | [`<path>`](<path>) | Large IP churn | <line count: was N, now M, +N% / -N%> |
 
-### 6.5 Adversarial Gate B — audit-doc review
+### 6.5 Deletion-detection sweep (Phase 2.5)
+
+<!--
+  Retrieve never deletes, so a component removed in the org leaves its local file
+  in place and the deletion is INVISIBLE in the diff. A file count at or above the
+  previous baseline is therefore not evidence of correctness — it is equally the
+  signature of an undetected deletion. Record this even when clean: "we didn't
+  check" and "there was nothing to find" are indistinguishable afterwards.
+
+  Source: .retrieve-logs/current/_del-residue-<Type>.txt per Tier A type.
+-->
+
+**Swept:** `<N>` Tier A types — `<list, or "all Tier A types retrieved this run">`
+**Result:** Clean / `<N>` residue entries across `<N>` types
+
+| Type | Residue entry | Cause | Action taken |
+|---|---|---|---|
+| `<Type>` | `<fullName>` | deleted in org / managed, filtered from the org list / enumerated-empty type / mapping error | removed locally / left with reason / mapping fixed and re-swept |
+
+<!--
+  NEVER bulk-delete from a residue list: the path-to-fullName mapping is the
+  fragile part, and a wrong mapping deletes live metadata. Confirm a sample
+  against the org before removing anything.
+-->
+
+**Types NOT swept, and why:** `<none, or type + reason (e.g. path-to-fullName mapping not established)>`
+
+---
+
+### 6.6 Adversarial Gate B — audit-doc review
 
 <!--
   After per-type analysis + cross-type synthesis, run three independent parallel
@@ -429,15 +486,18 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 -->
 
 **Scope contract:** `owned = this run's retrieved diff + this audit doc | blast radius = cross-type links the synthesis should have caught | not owned = the components' own pre-existing defects | out of scope = redesigning the retrieve runbook`
-**Profile / change kind:** `Salesforce delivery` / `retrieve_mirror`
-**Evidence pack:** `<PRE_HEAD SHA (from _pre-head.txt), per-type churn output, _footprint.tsv, .retrieve-logs/current/ log paths>` — no commit SHA yet; Gate B runs before §3.5.
-**Parallel dispatch:** `<single timestamp proving all three launched together>`
+**Profile / change kind:** `retrieve` / `retrieve_mirror` — **Gate B only, two critics**; no plan-stage gate, and no minimality critic (nothing changed).
+**Evidence pack:** `<PRE_HEAD SHA (from _pre-head.txt), per-type churn output, _footprint.tsv, _plan-notes.txt, _exclusions.tsv, _progress.tsv, Phase 2.5 residue files, .retrieve-logs/current/ log paths>` — no commit SHA yet; Gate B runs before §3.5.
+**Parallel dispatch:** `<single timestamp proving both critics launched together>`
 
 | Critic / run | Lens | Revision reviewed | Verdict |
 |---|---|---|---|
-| `<id>` | Per-type analysis depth | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | Cross-type synthesis completeness | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
-| `<id>` | Mirror + commit honesty | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Did the doc record what happened, completely and accurately | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+| `<id>` | Was the diff actually read | `<revision>` | PASS / PASS_WITH_FINDINGS / BLOCK |
+
+<!-- Two critics only. The minimality critic does not apply to a retrieve: nothing
+     changed, so there is nothing to make smaller. Org-wide coverage is OUT of scope —
+     attack what this doc CLAIMS, never what the run deliberately and datedly skipped. -->
 
 | Mandatory attack category | Result | Evidence / finding IDs |
 |---|---|---|
@@ -447,6 +507,11 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 | Active/status flips and structural overhauls under-reported | Pass / findings / N/A | <evidence> |
 | Staging correctness — WIP folded into the mirror commit, or paths missed | Pass / findings / N/A | <evidence> |
 | Overstated coverage (claiming completeness for a type that returned 0) | Pass / findings / N/A | <evidence> |
+| Tier B carry-forward presented as current, or with no date | Pass / findings / N/A | <evidence> |
+| Cap-blocked type not declared absent from the mirror | Pass / findings / N/A | <evidence> |
+| Enumerated-empty type recorded as covered or absent | Pass / findings / N/A | <evidence> |
+| Deletion sweep skipped, or residue neither removed nor explained | Pass / findings / N/A | <evidence> |
+| Container truncated by a child-type phase with no repair phase | Pass / findings / N/A | <evidence> |
 
 <!--
   Verified? is mandatory before any disposition — never auto-apply a finding,
@@ -488,7 +553,7 @@ git show <short-hash> -- force-app/main/default/classes/<ClassName>.cls   # focu
 
 <!--
   Skim `.retrieve-logs/current/*.log` for `Warnings` blocks. Most are
-  recurring Salesforce-side noise (listed in `docs/sf-org-mirror-retrieve.md`
+  recurring Salesforce-side noise (listed in `docs/org-mirror/README.md`
   "Known non-fatal warnings"). If you see anything NEW (not in that list),
   flag it here. Otherwise write "all known recurring warnings, no new
   surprises".
@@ -547,6 +612,6 @@ git show <short-hash> -- changes/git/      # confirm this doc not yet in mirror 
   Reminder: this doc is committed AFTER the metadata-snapshot commit
   referenced in §9. The two-commit pattern is mandatory and matches the
   rule in `.cursor/rules/documentation-workflow.mdc`. The runbook
-  `docs/sf-org-mirror-retrieve.md` (Phase 3) lays out the exact git
+  `docs/org-mirror/README.md` (Phase 3) lays out the exact git
   commands to use.
 -->

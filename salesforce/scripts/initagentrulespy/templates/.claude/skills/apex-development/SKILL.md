@@ -1,13 +1,13 @@
 ---
 name: apex-development
-description: Runs the full Apex lifecycle on `{{ORG_ALIAS}}` for creating, modifying, debugging, reviewing, validating, testing, linting, or deploying classes/triggers/batches. Requires retrieve/schema evidence, PMD, validation-only compile/tests, blocking adversarial plan and implementation gates, real deploy, coverage, and Apex-log verification. Mirrors `.cursor/rules/apex-development.mdc`.
+description: Runs the full Apex lifecycle on `{{ORG_ALIAS}}` for creating, modifying, debugging, reviewing, validating, testing, linting, or deploying classes/triggers/batches. Requires retrieve/schema evidence, PMD, validation-only compile/tests, the adversarial plan and implementation gates where they apply, real deploy, coverage, and Apex-log verification. Mirrors `.cursor/rules/apex-development.mdc`.
 ---
 
 # Apex development: deploy, test, lint, verify, format
 
-Default target org is `{{ORG_ALIAS}}` (sandbox), source API version `{{API_VERSION}}`. Every step below is mandatory.
+Default target org is `{{ORG_ALIAS}}` (sandbox), source API version `{{API_VERSION}}`. Every step below is required except the review gates, which apply per `adversarial-review` and can be waived by the user.
 
-Use the `adversarial-review` skill for Gate A before editing and Gate B before every real deploy/commit. Verify each finding before acting on it, rebut rather than silently dropping one, and escalate to the user after three unresolved rounds.
+Use the `adversarial-review` skill for Gate A before editing and Gate B before every real deploy/commit — that skill decides whether the gates run at all, and the user may waive either one. Verify each finding before acting on it, rebut rather than silently dropping one, and escalate to the user after three unresolved rounds. Never add `global` Apex to packaged metadata without asking the user first: that surface cannot be removed once a package version ships.
 
 ## Step 1 — Retrieve before editing
 
@@ -66,6 +66,8 @@ sf apex get log --log-id <operation-log-id> -o {{ORG_ALIAS}}
 # Repeat for every bound log; inspect errors, triggers/flows, and cumulative limits.
 ```
 
+Two traps when checking `sf` output programmatically rather than by eye: logs contain NUL bytes, so use **`grep -a`** or plain `grep` reports `Binary file … matches` and your check silently under-reports; and `grep -c` **exits non-zero on no match while still printing `0`**, so `grep -c … || echo 0` emits two lines and breaks a numeric comparison — capture it and default with `${VAR:-0}`. Also remember `--wait` is **minutes**: a seconds-style value multiplies the timeout by sixty and removes the only timeout the command had.
+
 ## Step 7 — Formatting
 
 - **Method params/args on ONE line** — never split, even if long.
@@ -74,7 +76,7 @@ sf apex get log --log-id <operation-log-id> -o {{ORG_ALIAS}}
 ## Final checklist
 
 - [ ] Retrieved all touched components from `{{ORG_ALIAS}}`.
-- [ ] Gate A passed against the approved LLD.
+- [ ] Gate A passed against the approved LLD, or one line records why it did not apply / that the user waived it.
 - [ ] PMD clean before deployment.
 - [ ] Validation-only compile/full manifest tests passed.
 - [ ] Validation coverage and every operation-bound test/async log inspected before Gate B.
