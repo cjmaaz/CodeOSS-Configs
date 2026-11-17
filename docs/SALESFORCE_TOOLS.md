@@ -25,11 +25,11 @@ This repository contains powerful automation tools for Salesforce development:
 
 ### 1. Python Schema Scripts (`schemapy`)
 
-12-step pipeline that retrieves your org's metadata, generates a [TOON](https://github.com/toon-format/spec/blob/main/SPEC.md)-encoded ER schema, shards it into per-object folders, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders a Mermaid `ER.md` diagram at the project root.
+13-step pipeline that refreshes your org's metadata into temporary staging (local `force-app/` is left alone by default), generates a [TOON](https://github.com/toon-format/spec/blob/main/SPEC.md)-encoded ER schema, shards it into per-object folders, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders a Mermaid `ER.md` diagram at the project root.
 
 ### 2. AI-Agent Rules Bootstrap (`initagentrulespy`)
 
-Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, script, manifest, and config set (~58 files) into any new Salesforce repo. Auto-detects `target-org`, API version, Java home, and PMD binary path and substitutes them in.
+Self-contained Python kit that materializes a curated AI-agent rule, skill, doc, script, manifest, and config set (~64 files) into any new Salesforce repo. Auto-detects `target-org`, API version, Java home, and PMD binary path and substitutes them in.
 
 ### 3. Git Change Viewer (`git-change-viewer`)
 
@@ -57,26 +57,27 @@ Settings and configurations optimized for Salesforce development in Code OSS-bas
 
 > **Encoding change.** Earlier versions of this pipeline emitted YAML. The output is now [TOON](https://github.com/toon-format/spec/blob/main/SPEC.md) (Token-Oriented Object Notation, v3.0). TOON is ~2-3× more token-efficient than YAML, which matters when feeding the schema into AI agents. All consumers (rules, skills, agent prompts) load `.toon` files. The single-`.yaml`-file fallback was removed.
 
-### The 12-step pipeline
+### The 13-step pipeline
 
-`auto_generate_schema.py` is the orchestrator — it walks all 12 steps end-to-end. Steps 1–9 are mandatory; steps 10–12 add usage-aware classification and the human-readable ER diagram and continue past failures (a warning is printed, but the per-object schema files from steps 1–9 are still usable on their own).
+`auto_generate_schema.py` is the orchestrator — it walks all 13 steps end-to-end. Steps 1–10 are mandatory; steps 11–13 add usage-aware classification and the human-readable ER diagram and continue past failures (a warning is printed, but the per-object schema files from steps 1–10 are still usable on their own).
 
-| #   | Owned by                          | What it does                                                                                                                                                                            |
-| --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1–6 | `auto_generate_schema.py`         | Detect default org, locate the `objects/` directory, query all sObjects, filter system objects (History/Share/Feed/ChangeEvent), diff against local metadata, retrieve what's missing   |
-| 7   | `generate_sf_er_schema.py`        | Parse every `*.object-meta.xml` and emit `config/salesforce-er-schema.toon` (combined intermediate)                                                                                     |
-| 8   | `split_schema_by_object.py`       | Shard the combined intermediate into per-object folders + a master index, a flat search index, and category groupings                                                                   |
-| 9   | `enrich_schema_with_picklists.py` | `sf sobject describe` per object — merge in picklist values (ACTIVE only), default values, formulas, lookups, field dependencies, length/precision/scale, required/unique/externalId    |
-| 10  | `collect_usage_stats.py`          | Composite REST `composite/batch` queries (25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                               |
-| 11  | `detect_junctions.py`             | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high`/`medium`/`low`/`schema_only`) uses Step 10 counts |
-| 12  | `generate_er.py`                  | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                           |
+| #    | Owned by                          | What it does                                                                                                                                                                            |
+| ---- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1–7  | `auto_generate_schema.py`         | Detect default org, locate the `objects/` directory, query all sObjects, keep types that pass the default filter **and** appear as `CustomObject` metadata, plan a full refresh, collect field inventory via composite-batch describes, retrieve eligible objects into a **temporary staging directory** (local Salesforce source is not overwritten by default) |
+| 8    | `generate_sf_er_schema.py`        | Merge staged XML-only details onto the describe-backed field list and emit `config/salesforce-er-schema.toon` (combined intermediate)                                                   |
+| 9    | `split_schema_by_object.py`       | Shard the combined intermediate into per-object folders + indexes/categories, and remove stale generated object folders                                                                 |
+| 10   | `enrich_schema_with_picklists.py` | Reuse the describe cache to reconcile per-object fields and active values, then synchronize shared index entries and affected categories                                                |
+| 11   | `collect_usage_stats.py`          | Composite REST `composite/batch` queries (25 SOQL queries per HTTP call) to pull per-picklist-value record counts + per-RecordType counts                                               |
+| 12   | `detect_junctions.py`             | Structurally classify objects as junctions (2+ real-business lookup parents + at least one promotion signal). Confidence tier (`high`/`medium`/`low`/`schema_only`) uses Step 11 counts |
+| 13   | `generate_er.py`                  | Render `ER.md` from `_junctions.toon` — markdown tables + per-tier Mermaid `erDiagram` blocks                                                                                           |
 
 ### Helper modules
 
-Three small private modules sit next to the pipeline scripts:
+Four small private modules sit next to the pipeline scripts:
 
 - **`_toon_io.py`** — TOON dump/load + `find_project_root()` (walks up from the script's own location, so the pipeline is cwd-independent).
-- **`_sf_session.py`** — fetches access token / instance URL / API version once via `sf org display --verbose --json`, then issues SOQL queries via `composite/batch` (25 queries per HTTP call). Uses `certifi`'s CA bundle when available — stdlib's default trust store is empty on many Python installs.
+- **`_field_metadata.py`** — shared describe/XML field reconciliation used by generation and enrichment.
+- **`_sf_session.py`** — fetches instance URL / API version via `sf org display --json`. When newer CLI versions redact `accessToken`, it obtains the token with `sf org auth show-access-token --json`, keeping credentials in memory and out of logs. Then issues SOQL queries via `composite/batch` (25 queries per HTTP call). Uses `certifi`'s CA bundle when available. Invalid/redacted credentials and HTTP 401 stop usage collection with a nonzero exit.
 - **`_fields_tabular.py`** — emits per-object `fields.toon` in TOON's tabular form. Auto-computes a `reference_path` cell for Lookup / MasterDetail fields.
 
 ### Available Scripts
@@ -86,19 +87,27 @@ Three small private modules sit next to the pipeline scripts:
 ```bash
 # Zero inputs required — auto-detects org from .sf/config.json
 python3 salesforce/scripts/schemapy/auto_generate_schema.py
+
+# Focused refresh of default-filter types
+python3 salesforce/scripts/schemapy/auto_generate_schema.py --objects Case,Account
+
+# Explicitly include types the default filter excludes (__mdt, __e, __b, __x)
+python3 salesforce/scripts/schemapy/auto_generate_schema.py --metadata My_Setting__mdt
 ```
+
+A full run retrieves eligible objects into temporary staging and uses the org's current object/field inventory. Local Salesforce source is not deleted or overwritten unless you pass `--prune-source-metadata`. `--objects` / `--metadata` are focused refreshes: they rewrite only the selected object folders and shared indexes, leave `_junctions.toon` and `ER.md` unchanged, and cannot be combined with `--prune-source-metadata`.
 
 **Output** (all under `config/`):
 
-- `salesforce-er-schema.toon` — combined intermediate (Step 7)
-- `schema/_index.toon` — master object index (Step 8)
-- `schema/_search_index.toon` — flat field search index (Step 8)
-- `schema/categories/*.toon` — objects grouped by category (Step 8)
-- `schema/objects/<Object>/{schema,picklists,formulas}.toon` — per-object enriched data (Steps 8 + 9)
-- `schema/_junctions.toon` — detected junction objects + parents (Step 11)
-- `../ER.md` (project root) — Mermaid ER diagram of every detected junction (Step 12)
+- `salesforce-er-schema.toon` — combined intermediate (Step 8)
+- `schema/_index.toon` — master object index (Step 9)
+- `schema/_search_index.toon` — flat field search index (Step 9)
+- `schema/categories/*.toon` — objects grouped by category (Step 9)
+- `schema/objects/<Object>/{schema,picklists,formulas}.toon` — per-object enriched data (Steps 9 + 10)
+- `schema/_junctions.toon` — detected junction objects + parents (Step 12)
+- `../ER.md` (project root) — Mermaid ER diagram of every detected junction (Step 13)
 
-#### 2. `enrich_schema_with_picklists.py` — Step 9
+#### 2. `enrich_schema_with_picklists.py` — Step 10
 
 Enriches per-object TOON files with `sf sobject describe` data.
 
@@ -126,7 +135,7 @@ python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --dry-run
 python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --org MyOrgAlias
 ```
 
-#### 3. `collect_usage_stats.py` — Step 10
+#### 3. `collect_usage_stats.py` — Step 11
 
 For every queryable object, runs `composite/batch` aggregate queries against the org to gather per-picklist-value record counts + per-RecordType counts. Merges them back into `picklists.toon` (switches to tabular `{value,count}` form when usage data is available) and `schema.toon` (`record_types[]` gains a `record_count` column).
 
@@ -138,9 +147,9 @@ python3 salesforce/scripts/schemapy/collect_usage_stats.py
 python3 salesforce/scripts/schemapy/collect_usage_stats.py --objects Account,Case
 ```
 
-Skips `MultiselectPicklist` fields (cannot `GROUP BY` cleanly in SOQL), objects with no read access, and objects with zero records. A 670-object org runs in ~20-30 minutes (~10× faster than per-call CLI usage).
+Skips `MultiselectPicklist` fields (cannot `GROUP BY` cleanly in SOQL), objects with no read access, objects with zero records, picklists hidden from describe, and types SOQL `GROUP BY` usage queries do not support (`__mdt`, `__e`, `__b`, `__x`). A 670-object org runs in ~20-30 minutes (~10× faster than per-call CLI usage).
 
-#### 4. `detect_junctions.py` — Step 11
+#### 4. `detect_junctions.py` — Step 12
 
 Structurally identifies junction objects from the combined schema + record-count enrichment. Detection is purely structural — no XYZ/Health-Cloud/Vlocity-specific name patterns — so it works in any org.
 
@@ -159,7 +168,7 @@ Confidence tiers:
 - `low` — junction object has zero records in this org
 - `schema_only` — `--no-counts` was used, or count fetch failed
 
-#### 5. `generate_er.py` — Step 12
+#### 5. `generate_er.py` — Step 13
 
 Pure offline (no SOQL, no `sf` calls). Reads `_junctions.toon` and emits a single `ER.md` at the project root with per-confidence-tier markdown tables and Mermaid `erDiagram` blocks. Mermaid rendering is skipped for tiers with > 80 junctions (the diagram becomes unreadable).
 
@@ -167,11 +176,11 @@ Pure offline (no SOQL, no `sf` calls). Reads `_junctions.toon` and emits a singl
 python3 salesforce/scripts/schemapy/generate_er.py
 ```
 
-#### 6. `generate_sf_er_schema.py` — Step 7
+#### 6. `generate_sf_er_schema.py` — Step 8
 
 Parses Salesforce metadata XML files and emits the combined `config/salesforce-er-schema.toon` intermediate. Typically invoked by the orchestrator; run manually if you want only the intermediate without sharding.
 
-#### 7. `split_schema_by_object.py` — Step 8
+#### 7. `split_schema_by_object.py` — Step 9
 
 Shards the combined intermediate into per-object folders + master index + search index + category groupings under `config/schema/`. Typically invoked by the orchestrator.
 
@@ -185,15 +194,18 @@ Shards the combined intermediate into per-object folders + master index + search
 python3 salesforce/scripts/schemapy/auto_generate_schema.py
 ```
 
-Runs all 12 steps end-to-end. Result: complete, enriched, count-aware schema in `config/schema/` plus `ER.md` at the project root.
+Runs all 13 steps end-to-end. Result: complete, enriched, count-aware schema in `config/schema/` plus `ER.md` at the project root.
 
 #### Workflow 2: Update Specific Objects Only
 
 ```bash
-# Preview changes
+# Focused refresh through the orchestrator (rewrites only those object folders)
+python3 salesforce/scripts/schemapy/auto_generate_schema.py --objects Case,Account
+
+# Preview enrichment-only changes
 python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --objects HealthcareProviderNpi --dry-run
 
-# Apply
+# Apply enrichment-only
 python3 salesforce/scripts/schemapy/enrich_schema_with_picklists.py --objects HealthcareProviderNpi,Account
 
 # Review + commit
@@ -232,7 +244,7 @@ Each object lands in its own folder:
 ```
 config/schema/objects/HealthcareProviderNpi/
 ├── schema.toon       ← object header, fields[] (tabular), record_types[], validation_rules[]
-├── picklists.toon    ← one block per Picklist field; tabular {value,count} when Step 10 ran
+├── picklists.toon    ← one block per Picklist field; tabular {value,count} when Step 11 ran
 └── formulas.toon     ← one block per Formula field, including the formula expression
 ```
 
@@ -280,7 +292,7 @@ Comprehensive reference for Salesforce metadata extraction using SF CLI.
 #### Get Field Metadata (Picklists, Formulas, Types)
 
 ```bash
-# Method 1: Describe command (fastest, most complete) — used by Step 9
+# Method 1: Describe command (fastest, most complete) — used by Step 10
 sf sobject describe --sobject Account --target-org MyOrg --json
 
 # Method 2: Query FieldDefinition
@@ -331,7 +343,7 @@ Self-contained Python kit (the `init.py` bootstrapper itself has no third-party 
 
 # 2. From inside your new Salesforce repo, run:
 python3 /path/to/initagentrulespy/init.py --org-name 'Your Project Name'
-# Writes ~58 files into the current directory and prints a summary.
+# Writes ~64 files into the current directory and prints a summary.
 
 # 3. Open .cursor/rules/sf-cli-commands.mdc — the canonical entry point.
 ```
@@ -340,16 +352,16 @@ python3 /path/to/initagentrulespy/init.py --org-name 'Your Project Name'
 
 | Path                             | Count                              | What it is                                                                                                                                                                                                              |
 | -------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.cursor/rules/`                 | 9                                  | Cursor rules (always-applied + on-demand). Consolidated set: `adversarial-review.mdc` (mandatory parallel multi-critic Gate A/Gate B review), `apex-development.mdc` (deploy / test / PMD / log-verify / formatting), `documentation-workflow.mdc` (intake → LLD → wrap-up + UT evidence), `retrieve-before-edit.mdc`, plus omnistudio-deploy-cache-bust, salesforce-schema-validation, sf-cli-commands, python-selenium-automation, and a stub `org-data-model.mdc`. |
+| `.cursor/rules/`                 | 12                                 | Cursor rules (always-applied + on-demand). Adds `delivery-hard-stops.mdc` (HS1–HS9: work reference, gate-choice question, chat rename, retrieve, ownership/package, schema preflight, no agent attribution, no agent-raised PRs, Apex execution-model consent, LWC Jest consent), `code-style.mdc` (compact expressions, readable blocks), and `github-pr-assist.mdc` (temporary repo-local GitHub device-flow access for existing-PR follow-up only). Also: `adversarial-review.mdc`, `apex-development.mdc`, `documentation-workflow.mdc`, `retrieve-before-edit.mdc`, omnistudio-deploy-cache-bust, salesforce-schema-validation, sf-cli-commands, python-selenium-automation, and a stub `org-data-model.mdc`. |
 | `.cursor/permissions.json`       | 1                                  | Cursor IDE terminal command allowlist (`terminalAllowlist`) — read-only `sf` / `git` / shell command prefixes that auto-run without approval. Mirrors the Claude-side `.claude/settings.json` allowlist.                |
 | `.cursor/sandbox.json`           | 1                                  | Cursor agent sandbox config — workspace read/write plus both home-level and workspace-local `.sf`, `.sfdx`, `.config/sf`, and `.cache` paths, with a deny-by-default network policy allowlisting Salesforce domains. Paths are auto-filled at init. |
-| `.claude/skills/`                | 6 skills + `.claude/settings.json` | Claude Code skills mirroring the rules (adversarial-review, apex-development, documentation-workflow, retrieve-before-edit, omnistudio-deploy-cache-bust, schema-lookup), plus the Claude Code allowlist (`permissions.allow`) in `settings.json`. Excludes machine-local `settings.local.json`. |
+| `.claude/skills/`                | 9 skills + `.claude/settings.json` | Claude Code skills mirroring the rules (`delivery-hard-stops`, `code-style`, `github-pr-assist`, adversarial-review, apex-development, documentation-workflow, retrieve-before-edit, omnistudio-deploy-cache-bust, schema-lookup), plus the Claude Code allowlist (`permissions.allow`) and `attribution: {commit: "", pr: ""}` in `settings.json`. Excludes machine-local `settings.local.json`. |
 | `docs/`                          | 17                                 | `docs/_templates/` design-doc templates (LLD, questions-and-KT, walkthrough, step-by-step AC test), `docs/diagram-conventions.md` (component-scoped mermaid style those diagrams follow), `docs/org-mirror/` (full-org retrieve runbook plus 3 executable shell scripts), `docs/omnistudio/` guides, and `docs/schema-quickref.md`. Includes a stub `docs/omnistudio/org-conventions.md`. |
 | `changes/_templates/`            | 4                                  | Bug-fix / story / refactor / retrieve-audit doc templates referenced by the `documentation-workflow` rule.                                                                                                              |
 | `config/schema/`                 | 1                                  | `README.md` documenting the per-object TOON schema-file layout generated by a separately provisioned `scripts/schemapy/` pipeline. The schema TOON files themselves are generated per-org, not shipped.                  |
 | `.vscode/`                       | 1                                  | `settings.json` only (with detected Java home). Existing top-level properties are merged: missing properties are appended, while matching properties are replaced and their prior values retained as comments. `extensions.json` and `launch.json` are not generated. |
 | `.mcp.json` + `.cursor/mcp.json` | 2 (same content)                   | MCP server config. Same content written to both paths so Claude Code (reads `.mcp.json`) and Cursor (reads `.cursor/mcp.json`) share the same server set. Filesystem-MCP path is auto-set to your repo's absolute path. |
-| `manifest/`                      | 12 (1 + 11)                        | Master `fullpackage.xml` plus 11 pre-sharded `fullpackage/` full-org retrieve manifests (each shard fits under the 10k-component metadata-API limit).                                                                    |
+| `manifest/`                      | 12 (1 + 11)                        | Master `fullpackage.xml` plus 11 pre-sharded `fullpackage/` manifests. These are **seeds** — type names with no members. The manifests a retrieve actually uses are generated per run from the measured footprint; see `docs/org-mirror/README.md`. |
 | `config/pmd-ruleset.xml`         | 1                                  | Sensible default Apex PMD ruleset. Tune thresholds for your project.                                                                                                                                                    |
 | `.gitignore`                     | 1                                  | Salesforce/LWC/Node/OS noise plus the paths this workflow generates (`.retrieve-logs/`, `.sf-ops/`, Vlocity build temp, and the kit's own install state). **Append-only merge** — an existing `.gitignore` keeps every entry, ordering, and comment it had; only missing patterns are added. |
 | `.initagentrulespy-manifest.json` | 1                                 | Install-tracking marker: kit protocol version, status, managed file paths, and the values substituted, so later runs can spot obsolete files and recover a value whose detection fails on a given machine. Gitignored by the kit's own `.gitignore`. |
@@ -365,6 +377,11 @@ repaired. And OS/tooling droppings inside `templates/` — `.DS_Store`,
 `Thumbs.db`, `desktop.ini`, `__pycache__/`, `.pytest_cache/`,
 `.ipynb_checkpoints/`, `*.pyc` — are skipped by the template walk, so they are
 never materialized into a bootstrapped project nor counted as kit files.
+
+`init.py` also fails closed if the `delivery-hard-stops`, `code-style`, or
+`github-pr-assist` templates are missing required headings (HS1–HS9, compact
+style markers, or the GitHub follow-up / cleanup contract). Bootstrap aborts
+rather than shipping a kit without those gates.
 
 ### CLI reference
 
@@ -1134,7 +1151,7 @@ cd /path/to/configs
 pip install -r salesforce/scripts/schemapy/requirements.txt
 sf org list
 
-# 3. Run the full 12-step pipeline
+# 3. Run the full 13-step pipeline
 python3 salesforce/scripts/schemapy/auto_generate_schema.py
 
 # 4. Check output
@@ -1194,7 +1211,7 @@ For comprehensive documentation on each component:
 
 - **Schema Pipeline**: See [`salesforce/scripts/schemapy/README.md`](../salesforce/scripts/schemapy/README.md)
 
-  - The full 12-step pipeline (Steps 1-12, helper modules, output shape)
+  - The full 13-step pipeline (Steps 1-13, helper modules, output shape)
   - Per-script CLI flag reference
   - TOON cell-decoding conventions
   - Troubleshooting guide
@@ -1257,7 +1274,7 @@ pip install -r salesforce/scripts/schemapy/requirements.txt
 pip install --pre toon-format
 ```
 
-#### Error: SSL / `CERTIFICATE_VERIFY_FAILED` in Step 10
+#### Error: SSL / `CERTIFICATE_VERIFY_FAILED` in Step 11
 
 ```bash
 # stdlib's default trust store is empty on python.org macOS builds and
@@ -1265,13 +1282,13 @@ pip install --pre toon-format
 pip install certifi
 ```
 
-#### Step 10 (`collect_usage_stats.py`) takes >30 minutes
+#### Step 11 (`collect_usage_stats.py`) takes >30 minutes
 
 Expected on large orgs (600+ objects). `composite/batch` already batches up to 25 SOQL queries per HTTP call, but a full picklist-and-RecordType census still touches thousands of queries. Use `--objects` to scope to a smaller set.
 
 #### `_junctions.toon` shows everything as `schema_only`
 
-Step 10 was skipped or failed — re-run `collect_usage_stats.py` then `detect_junctions.py`. To intentionally skip count enrichment, pass `--no-counts` to `detect_junctions.py`.
+Step 11 was skipped or failed — re-run `collect_usage_stats.py` then `detect_junctions.py`. To intentionally skip count enrichment, pass `--no-counts` to `detect_junctions.py`.
 
 ### AI-Agent Rules Bootstrap (`initagentrulespy`)
 

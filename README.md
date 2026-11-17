@@ -103,8 +103,8 @@ Custom CSS and JavaScript for enhanced IDE appearance including:
 
 Automated Salesforce development utilities:
 
-- **Schema Pipeline (`schemapy`)**: 12-step pipeline that retrieves metadata, emits a TOON-encoded ER schema, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders an `ER.md` Mermaid diagram
-- **AI-Agent Rules Bootstrap (`initagentrulespy`)**: One-command Python kit that drops ~58 curated rule / skill / doc / script / manifest / config files into any new Salesforce repo without touching project scripts (auto-detects target-org, API version, Java home, and PMD path)
+- **Schema Pipeline (`schemapy`)**: 13-step pipeline that refreshes org metadata into temporary staging, emits a TOON-encoded ER schema, enriches every field with active picklist values, layers in live record-count usage stats, structurally detects junction objects, and renders an `ER.md` Mermaid diagram
+- **AI-Agent Rules Bootstrap (`initagentrulespy`)**: One-command Python kit that drops ~64 curated rule / skill / doc / script / manifest / config files into any new Salesforce repo without touching project scripts (auto-detects target-org, API version, Java home, and PMD path)
 - **Git Change Viewer (`git-change-viewer`)**: Local-only Node + Vite web app that merges git changes from `changes/*.md` docs and hand-picked commits into one diff view, then exports a Salesforce `package.xml`
 - **PMD Rulesets**: Static code analysis rulesets for Apex quality and security
 - **MCP Wrapper**: Salesforce CLI integration for AI coding assistants
@@ -126,7 +126,7 @@ Automated Salesforce development utilities:
 - [Code OSS Profiles](code-oss/profiles/README.md) - Profile overview
 - [Code OSS Customization](code-oss/customization/README.md) - Quick setup for custom styles
 - [Salesforce Scripts](salesforce/scripts/README.md) - Index of the `schemapy`, `initagentrulespy`, and `git-change-viewer` kits
-- [`schemapy` — Schema Pipeline](salesforce/scripts/schemapy/README.md) - 12-step TOON-encoded schema generator
+- [`schemapy` — Schema Pipeline](salesforce/scripts/schemapy/README.md) - 13-step TOON-encoded schema generator
 - [`initagentrulespy` — Rules Bootstrap](salesforce/scripts/initagentrulespy/README.md) - Bootstrap AI-agent rules into a new Salesforce repo
 - [`git-change-viewer` — Diff & package.xml](salesforce/scripts/git-change-viewer/README.md) - Combine git changes and export a Salesforce manifest
 - [Salesforce PMD Rulesets](salesforce/pmd/README.md) - Static code analysis rulesets
